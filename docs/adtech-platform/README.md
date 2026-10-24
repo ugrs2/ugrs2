@@ -4,6 +4,12 @@ Bu doküman seti; birinci parti veri toplayan bir **DMP / CDP**, bu veriyi gerç
 
 > Tasarım ilkeleri: **cookieless-first**, **privacy-by-design (KVKK/GDPR)**, **gerçek zamanlı** (karar p99 < 30 ms), **çok kiracılı (multi-tenant)**, **olay güdümlü (event-driven)** ve **yatay ölçeklenebilir**.
 
+## Görsel Özet (mobil uyumlu)
+
+| Sistem Şeması | Sistem Akışları |
+|---|---|
+| [![Sistem Şeması](images/sistem-semasi.png)](images/sistem-semasi.png) | [![Sistem Akışları](images/sistem-akislari.png)](images/sistem-akislari.png) |
+
 ## Doküman Haritası
 
 | # | Doküman | İçerik |
