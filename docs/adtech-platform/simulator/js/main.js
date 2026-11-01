@@ -43,7 +43,10 @@ window.SIM = window.SIM || {};
     document.documentElement.classList.add('sim-booting');
 
     // Tek dosyalık sürümde (dist/simulator.html) doküman bağlantıları bir üst klasöre göre çözülür.
-    if (SIM.bundled && SIM.inspector) SIM.inspector.docsBase = '../../';
+    // Sunucu kurulumu (deploy/) dokümanları başka yere koyar ve yolu <meta name="sim-docs-base"> ile bildirir.
+    const docsMeta = document.querySelector('meta[name="sim-docs-base"]');
+    if (docsMeta && SIM.inspector) SIM.inspector.docsBase = docsMeta.getAttribute('content') || '';
+    else if (SIM.bundled && SIM.inspector) SIM.inspector.docsBase = '../../';
 
     if (SIM.engine && typeof SIM.engine.init === 'function') {
       try { await SIM.engine.init(); }
