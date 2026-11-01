@@ -170,6 +170,8 @@ export function temelAtis(vfx, o) {
   if (vfx.isVisibleSegment(hand, hit, 2 * U)) {
     t = vfx.shoot('arrow', hand, hit, { speed: 26, arc: 0.25, scale: 0.85, trails: [{ width: 0.1, length: 0.06, color: 0xfff1c9, intensity: 0.8 }] });
     impact(vfx, hit, null, BASIC, { delay: t, size: 0.45, dir });
+    vfx.sound('okAtis', from, 0, { gain: 0.6 });
+    vfx.sound('okIsabet', target, t, { gain: 0.7 });
   }
   return finish(vfx, o, { duration: t, hits: [{ time: t, position: hit }] });
 }
@@ -188,6 +190,8 @@ export function temelVurus(vfx, o) {
     const n = UP.clone().applyAxisAngle(dir, rnd(-0.6, 0.6)); // hafif eğik yatay düzlem
     vfx.slash(c, { normal: n, toward: dir, radius: 0.95, arc: 2.3, width: 0.32, duration: 0.18, color: o.color ?? 0xbfe3ff, intensity: 1 });
     impact(vfx, hit, null, MELEE, { delay: t, size: 0.45, dir });
+    vfx.sound('savurma', from, 0, { gain: 0.6 });
+    vfx.sound('kilicVurus', target, t, { gain: 0.7 });
   }
   return finish(vfx, o, { duration: 0.2, hits: [{ time: t, position: hit }] });
 }
@@ -206,6 +210,8 @@ export function yaratikOlum(vfx, o) {
     vfx.burst(COIN, c, vfx.n(o.coins ?? 5), { dir: UP, spread: 0.7, speed: [4, 6.5] });
     vfx.decal(DECAL.SHOCKWAVE, p, { r0: 0.2, r1: 2, duration: 0.45, color: DEATH.core, alpha: 0.8 });
     vfx.decal(DECAL.SOFT, p, { r0: 1.0, r1: 1.4, duration: 1.2, color: 0x2a1840, alpha: 0.5 });
+    vfx.sound('yaratikOlum', p, 0);
+    vfx.sound('altinlar', p, 0.25, { gain: 0.6 });
   }
   return finish(vfx, o, { duration: 1, hits: [] });
 }

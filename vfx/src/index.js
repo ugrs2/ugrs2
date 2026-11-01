@@ -5,3 +5,6 @@ export { SKILLS } from './skills/index.js';
 export * from './skills/index.js';
 export { theme, impact, dustRing, DUST, DEBRIS } from './skills/common.js';
 export { mergeColored, arrowGeometry, daggerGeometry, bombGeometry } from './geometry.js';
+export { SFXPlayer } from './audio/SFXPlayer.js';
+export { SOUNDS, CATEGORIES, byCategory } from './audio/sounds.js';
+export * as DSP from './audio/dsp.js';

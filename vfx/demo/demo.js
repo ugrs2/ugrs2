@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { VFXSystem, SKILLS, DECAL, mergeColored } from '../src/index.js';
+import { VFXSystem, SKILLS, DECAL, mergeColored, SFXPlayer } from '../src/index.js';
 
 // ---------------------------------------------------------------------------
 // Sahne
@@ -233,7 +233,11 @@ function makeCreature(pos, main) {
 // ---------------------------------------------------------------------------
 // VFX
 // ---------------------------------------------------------------------------
-const vfx = new VFXSystem({ scene, camera });
+// Sesler: dosya yok, açılışta arka planda matematikle üretilir
+const sfx = new SFXPlayer({ variants: 3 });
+sfx.unlock();
+sfx.preload();
+const vfx = new VFXSystem({ scene, camera, audio: sfx });
 
 const HIT_RADIUS = { okYagmuru: 1.3, dumanBombasi: 3.5, binKesik: 1.6, olumAtisi: 1.4 };
 const DAMAGE = { olumAtisi: 14, binKesik: 1, okYagmuru: 1, seriAtis: 2, hancerYelpazesi: 2, dumanBombasi: 2, golgeAdimi: 6, taklaAtis: 3 };
@@ -247,6 +251,7 @@ function damageAt(position, radius, dmg) {
     c.flash = 1;
     c.squash = 1;
     c.hp -= dmg;
+    if (Math.random() < 0.35) sfx.play('yaratikAci', { position: c.obj.position, delay: 0.03 });
     if (c.hp <= 0) kill(c);
   }
 }
@@ -263,6 +268,7 @@ function kill(c) {
     c.obj.visible = stress || arena.includes(c);
     c.squash = 1;
     if (vfx.isVisible(c.home, 2)) {
+      sfx.play('yaratikDogus', { position: c.home, gain: 0.6 });
       vfx.decal(DECAL.RUNE, c.home, { r0: 1.1, r1: 1.2, duration: 0.6, color: 0xb58cff, alpha: 0.7, spin: 3 });
       vfx.decal(DECAL.SHOCKWAVE, c.home, { r0: 0.2, r1: 1.6, duration: 0.4, color: 0xb58cff });
     }
@@ -297,6 +303,9 @@ function cast(hero, id) {
     target: target.obj.position,
     caster: hero.obj,
     shake: shakeOn && hero.main,
+    voice: hero.main ? (hero.role === 'okcu' ? 'Ince' : 'Kalin') : undefined,
+    volume: hero.main ? 1 : 0.45, // diğer kahramanlar daha kısık
+    priority: hero.main ? 2 : 0, // ses sınırı dolunca önce kendi kahramanımız duyulsun
     onHit: (h) => damageAt(h.position, r, dmg),
   });
   if (def.moves) {
@@ -415,6 +424,11 @@ const toggle = (id, fn) => document.getElementById(id).addEventListener('click',
 toggle('btn-auto', () => (auto = !auto));
 toggle('btn-slow', () => (slow = !slow));
 toggle('btn-shake', () => (shakeOn = !shakeOn));
+toggle('btn-sound', () => {
+  sfx.muted = !sfx.muted;
+  if (sfx.muted) sfx.stopAll();
+  return !sfx.muted;
+});
 document.getElementById('btn-stress').addEventListener('click', () => setStress(!stress));
 document.getElementById('btn-quality').addEventListener('click', (e) => {
   qi = (qi + 1) % QUALITIES.length;
@@ -459,9 +473,10 @@ const roleSkills = {
 
 let simTime = 0;
 let paused = false;
-function step(dt) {
+function step(dt, timeScale = 1) {
   simTime += dt;
-  vfx.update(dt);
+  vfx.timeScale = timeScale;
+  vfx.update(dt / timeScale);
 
   for (const h of heroes) {
     if (!h.main && !stress) continue;
@@ -500,6 +515,7 @@ function render() {
   camera.position.copy(cam.target).add(cam.offset);
   camera.lookAt(cam.target);
   vfx.applyShake(camera);
+  sfx.setListenerFromCamera(camera, cam.target);
   renderer.render(scene, camera);
 }
 
@@ -509,7 +525,7 @@ let fpsN = 0;
 function frame(now) {
   timer.update(now);
   const raw = Math.min(timer.getDelta(), 1 / 20);
-  if (!paused) step(raw * (slow ? 0.25 : 1));
+  if (!paused) step(raw * (slow ? 0.25 : 1), slow ? 0.25 : 1);
   render();
   fpsT += raw;
   fpsN++;
@@ -542,4 +558,5 @@ window.__demo = {
     selected = arena[i];
   },
   renderer,
+  sfx,
 };

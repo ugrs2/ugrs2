@@ -70,8 +70,10 @@ export class VFXSystem {
     cull = true, // ekran dışındaki kahramanların efektlerini hiç üretme
     capacity = {},
     cloneFn = null, // art görüntü kopyalayıcı (SkinnedMesh için SkeletonUtils.clone)
+    audio = null, // (ops.) SFXPlayer — verilirse yetenekler sesleriyle çalar
   } = {}) {
     this.cloneFn = cloneFn;
+    this.audio = audio;
     this.scene = scene;
     this.camera = camera;
     this.unit = unit;
@@ -177,6 +179,26 @@ export class VFXSystem {
     return this.isVisible(_d, r);
   }
 
+  /**
+   * Efekt zaman çizelgesine ses ekler (audio verilmişse). Görselle aynı anda
+   * çalması için gecikme doğrudan ses saatine planlanır.
+   */
+  sound(id, pos = null, delay = 0, opts = null) {
+    const a = this.audio;
+    if (!a) return;
+    const o = opts ? { ...opts } : {};
+    if (pos) o.position = { x: pos.x, z: pos.z };
+    o.gain = (o.gain ?? 1) * (this._castGain ?? 1);
+    o.priority = (o.priority ?? 0) + (this._castPriority ?? 0);
+    if (this.timeScale === 1) {
+      o.delay = delay;
+      a.play(id, o);
+    } else {
+      o.rate = (o.rate ?? 1) * Math.max(0.5, Math.min(1, this.timeScale)); // yavaş çekimde perde de düşsün
+      this.after(delay, () => a.play(id, o));
+    }
+  }
+
   /** Kaliteye göre parçacık sayısı. */
   n(count) {
     return count <= 0 ? 0 : Math.max(1, Math.round(count * this.quality));
@@ -186,7 +208,15 @@ export class VFXSystem {
   cast(id, options) {
     const s = this.skills[id];
     if (!s) throw new Error(`Bilinmeyen yetenek: ${id}`);
-    return s.fn(this, options);
+    // yetenek seslerini bu cast'e göre ölçekle (ör. oyuncunun kendi kahramanı daha yüksek/öncelikli)
+    this._castGain = options?.volume ?? 1;
+    this._castPriority = options?.priority ?? 0;
+    try {
+      return s.fn(this, options);
+    } finally {
+      this._castGain = 1;
+      this._castPriority = 0;
+    }
   }
 
   // -------------------------------------------------------------------------

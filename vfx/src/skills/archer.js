@@ -58,6 +58,7 @@ export function seriAtis(vfx, o) {
   if (fx) {
     vfx.decal(DECAL.RUNE, from, { r0: 1.0, r1: 1.15, duration: windup + count * interval + 0.4, color: GOLD.core, alpha: 0.75, spin: 2 });
     vfx.converge(GOLD.inflow, hand, vfx.n(10), { radius: 1.0, time: windup });
+    vfx.sound('runAktif', from, 0, { gain: 0.5 });
   }
 
   const hits = [];
@@ -82,6 +83,8 @@ export function seriAtis(vfx, o) {
         trails: [{ width: last ? 0.3 : 0.2, length: 0.07, color: GOLD.core, intensity: 1.1 }],
       });
       impact(vfx, end, last ? target : null, GOLD, { delay: t, size: last ? 0.95 : 0.6, dir });
+      vfx.sound('okAtis', from, d, { gain: 0.8 });
+      vfx.sound(last ? 'buyuIsabet' : 'okIsabet', target, t);
     }
     hits.push({ time: t, position: end });
   }
@@ -127,6 +130,11 @@ export function taklaAtis(vfx, o) {
     vfx.burst(WIND.glow, muzzle, 1, { delay: fireT });
     vfx.burst(WIND.spark, muzzle, vfx.n(8), { delay: fireT, dir, spread: 0.5, speed: [6, 12] });
     dustRing(vfx, land, { size: 0.75, delay: T });
+    vfx.sound(o.voice ? `hup${o.voice}` : 'inis', from, 0, { gain: 0.6 });
+    vfx.sound('takla', from, 0.04);
+    vfx.sound('okAtis', from, fireT);
+    vfx.sound('okUcus', from, fireT + 0.03);
+    vfx.sound('inis', land, T, { gain: 0.7 });
   }
 
   const hits = [];
@@ -147,6 +155,7 @@ export function taklaAtis(vfx, o) {
         ],
       });
       impact(vfx, end, target, WIND, { delay: t, size: 0.75 });
+      vfx.sound('okIsabet', target, t);
     }
     hits.push({ time: t, position: end });
   }
@@ -210,7 +219,10 @@ export function okYagmuru(vfx, o) {
       vfx.burst(SKY.spark, hand, vfx.n(4), { delay: d, dir: UP, spread: 0.5, speed: [5, 9] });
       vfx.shoot('arrow', hand, top, { delay: d, duration: 0.35, emissive: 0.9, tint: SKY.edge, trails: [{ width: 0.28, length: 0.18, color: SKY.edge, intensity: 1.3 }] });
       vfx.burst(SKY.star, top, 1, { delay: d + 0.35, sizeMul: 2 });
+      vfx.sound('okAtis', from, d);
     }
+    vfx.sound('okUcus', from, 0.05);
+    vfx.sound('runAktif', target, 0.1, { gain: 0.6 });
     vfx.decal(DECAL.AOE, target, { r0: R / U, duration: rainStart + rainSpan + fall + 0.25, color: 0xffb547, alpha: 0.9, spin: 0.25 });
   }
 
@@ -238,6 +250,8 @@ export function okYagmuru(vfx, o) {
       vfx.burst(DUST_SMALL, ground, vfx.n(2), { delay: d + fall, flat: true, speed: [1, 2.5], up: 0.6 });
       vfx.burst(SKY.spark, ground, vfx.n(3), { delay: d + fall, dir: UP, spread: 1.0, speed: [2.5, 5] });
       vfx.decal(DECAL.SHOCKWAVE, ground, { r0: 0.1, r1: 0.75, duration: 0.3, color: SKY.core, alpha: 0.6, delay: d + fall });
+      vfx.sound('okSaplanma', ground, d + fall, { gain: 0.8 });
+      if (i % 7 === 0) vfx.sound('okUcus', ground, d - 0.05, { gain: 0.5 });
     }
     hits.push({ time: d + fall, position: ground });
   }
@@ -281,6 +295,14 @@ export function olumAtisi(vfx, o) {
   const fx = vfx.isVisibleSegment(from, end, 5 * U);
   if (fx) {
     // --- şarj ---
+    vfx.sound('olumSarj', from, 0);
+    vfx.sound('yayGerme', from, charge - 0.5);
+    vfx.sound('okAtis', from, charge, { gain: 1.2 });
+    if (o.voice) vfx.sound(`hah${o.voice}`, from, charge - 0.05, { gain: 0.8 });
+    vfx.sound('sokDalgasi', from, charge);
+    vfx.sound('okUcus', from, charge + 0.02);
+    vfx.sound('kritikVurus', target, hitT);
+    vfx.sound('olumCani', target, hitT + 0.05);
     vfx.decal(DECAL.RUNE, from, { r0: 1.5, r1: 1.75, duration: charge + 0.35, color: BLOOD.core, alpha: 0.9, spin: 3 });
     vfx.decal(DECAL.SOFT, from, { r0: 2.0, r1: 2.2, duration: charge + 0.6, color: 0x16030a, alpha: 0.55 });
     vfx.converge(BLOOD.inflow, hand, vfx.n(30), { radius: 2.6, time: 0.4, jitter: charge - 0.4 });

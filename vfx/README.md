@@ -150,6 +150,72 @@ export function buzPatlamasi(vfx, { from, target }) {
 }
 ```
 
+## 🔊 Ses paketi (76 ses, hiç ses dosyası gerekmez)
+
+Sesler de görseller gibi **matematikle üretilir** (`src/audio/`): gürültü, osilatör,
+filtre, modal sentez (metal/çan), Karplus-Strong (yay teli) ve formant sentezi (ses
+tepkileri). Oyun açılırken arka planda üretilir; istenirse hazır WAV'lar da var.
+
+| Kategori | Sesler (`id`) |
+|---|---|
+| ⚔️ Vuruşlar | `vurusHafif` `vurusOrta` `vurusAgir` `kritikVurus` `kilicVurus` `hancerSaplanma` `okIsabet` `metalCarpma` `buyuIsabet` |
+| 🏹 Okçu | `yayGerme` `okAtis` `okUcus` `okSaplanma` |
+| ✨ Büyü & efekt | `sarj` `olumSarj` `patlama` `sokDalgasi` `buyuParilti` `runAktif` `golgeGecis` `golgeBelirme` `dumanPuf` `fitil` `olumCani` `kesikFinal` |
+| 💨 Hareket | `savurma` `savurmaAgir` `takla` `atilma` `hancerFirlat` `ayakSesi` `inis` |
+| 🔥 Ateş | `atesTutusma` `atesTopu` `atesPatlama` `yanma` (döngü) `yanmaHasar` `sonme` |
+| ⛈️ Fırtına | `simsek` `gokGurultusu` `ruzgar` (döngü) `yagmur` (döngü) `firtina` (döngü) |
+| 👾 Yaratık | `yaratikAci` `yaratikSaldiri` `yaratikOlum` `yaratikDogus` |
+| 🗣️ Kahraman sesleri | `ah` `uh` `hah` `hiya` `hup` `of` `olum` `haha` `yasasin` `hmm` `ooh` — her biri `…Kalin` ve `…Ince` (ör. `ahKalin`, `hahaInce`) |
+| 🪙 Ödül & arayüz | `altin` `altinlar` `seviyeAtla` `gorevTamam` `odul` `buton` `hata` |
+
+**Dinlemek için:** demo sunucusu açıkken `http://localhost:8080/demo/sesler.html`.
+Her tıklamada farklı bir varyasyon çalar; en altta 8 yeteneğin oyundaki zamanlamayla
+mikslenmiş tam sesleri var. Hazır dosyalar: `sesler/*.wav` (liste: `sesler/LISTE.md`).
+
+### Kullanım
+
+```js
+import { VFXSystem, SFXPlayer } from './vfx/src/index.js';
+
+const sfx = new SFXPlayer({ lite: isMobile });   // lite: 22 kHz + tek varyasyon (~7 MB yerine ~23 MB)
+sfx.unlock();                                     // tarayıcı kuralı: ilk dokunuşta ses açılır
+await sfx.preload();                              // yükleme ekranında (ya da await'siz arka planda)
+
+const vfx = new VFXSystem({ scene, camera, audio: sfx });   // yetenekler artık sesli
+
+// her karede, kamera yerleştikten sonra:
+sfx.setListenerFromCamera(camera, kameraninBaktigiNokta);
+
+// yetenek — sesler görselle aynı anda planlanır:
+vfx.cast('binKesik', {
+  from, target, caster,
+  voice: 'Kalin',                 // (ops.) kahraman sesi: 'Kalin' | 'Ince' (hup!, hah!, hi-yaa!)
+  volume: benimKahramanim ? 1 : 0.45,
+  priority: benimKahramanim ? 2 : 0,   // ses sınırı dolunca önce kendi kahramanınız duyulur
+});
+
+// tek başına:
+sfx.play('ahInce', { position: hero.position });          // kahraman hasar alınca
+sfx.play('altin');                                        // konumsuz (arayüz)
+sfx.startLoop('yanma', `yanma-${mob.id}`, { position: mob.position });
+sfx.stopLoop(`yanma-${mob.id}`);
+sfx.startLoop('firtina');                                 // hava durumu ambiyansı
+```
+
+**Yüzlerce kahraman için:** aynı anda en fazla ~28 ses çalar (öncelikliler kalır),
+aynı ses 35 ms içinde en fazla birkaç kez çalınır (36 okluk yağmur gürültüye dönmez),
+uzaktaki sesler kısılır/elenir, ekran dışındaki kahramanların yetenekleri zaten ses
+üretmez ve ana çıkıştaki sıkıştırıcı toplu çatışmada patlamayı önler. Demo'daki toplu
+testte anlık ortalama ~16 ses çalıyor.
+
+**Ses değiştirmek:** her ses `src/audio/sounds.js` içinde birkaç satırlık bir tariftir
+(frekans, süre, filtre). Değiştirip `node tools/ses-disa-aktar.mjs` ile WAV'ları
+yeniden üretin (`--varyasyon=3` her sesin 3 varyasyonunu yazar).
+
+> Kahraman ses tepkileri formant sentezidir: sevimli/çizgi film tınısındadır, gerçek
+> insan sesi gibi değildir. Daha doğal ses gerekirse seslendirme ya da CC0 kütüphaneler
+> (ör. Kenney.nl, Freesound'da CC0 filtresi) ile `loadWavs()` kullanılabilir.
+
 ## Dosyalar
 
 ```
@@ -166,7 +232,12 @@ vfx/
     skills/archer.js        okçu yetenekleri
     skills/assassin.js      suikastçı yetenekleri
     skills/common.js        temalar, temel saldırılar, ölüm efekti
-  demo/                     test sahnesi
+    audio/dsp.js            ses sentezi (osilatör, gürültü, filtre, yankı, WAV)
+    audio/sounds.js         76 ses tarifi
+    audio/SFXPlayer.js      oynatıcı: varyasyon, ses sınırı, uzaklık, döngüler
+  sesler/                   hazır WAV dosyaları + LISTE.md
+  tools/ses-disa-aktar.mjs  sesleri WAV olarak yeniden üretir
+  demo/                     test sahnesi (index.html) + ses dinleme sayfası (sesler.html)
 ```
 
 ## Performans ipuçları (mobil)

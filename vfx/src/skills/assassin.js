@@ -88,6 +88,10 @@ export function golgeAdimi(vfx, o) {
   if (fx) {
     const chestA = v3(from).addScaledVector(UP, 0.8 * U);
     const chestB = behind.clone().addScaledVector(UP, 0.8 * U);
+    vfx.sound('golgeGecis', from, 0);
+    vfx.sound('golgeBelirme', behind, tArrive);
+    vfx.sound('savurma', target, tStab - 0.05);
+    vfx.sound('hancerSaplanma', target, tStab + 0.04, { gain: 1.2 });
     // çıkış
     vfx.decal(DECAL.VORTEX, from, { r0: 1.3, r1: 1.6, duration: 0.7, color: 0x7a3cff });
     vfx.burst(SHADOW_SMOKE, chestA, vfx.n(14), { speed: [1, 3], radius: 0.4, up: 0.6 });
@@ -143,6 +147,8 @@ export function hancerYelpazesi(vfx, o) {
       color: STEEL.core,
     });
     vfx.burst(STEEL.glow, hand, 1, { sizeMul: 0.8 });
+    vfx.sound('savurma', from, 0);
+    for (let k = 0; k < 3; k++) vfx.sound('hancerFirlat', from, k * 0.025);
   }
 
   const hits = [];
@@ -166,6 +172,7 @@ export function hancerYelpazesi(vfx, o) {
         trails: [{ width: 0.14, length: 0.07, color: STEEL.core, intensity: 1.1 }],
       });
       impact(vfx, end, null, STEEL, { delay: t, size: 0.5, dir: d });
+      vfx.sound('hancerSaplanma', end, t, { gain: 0.7 });
     }
     hits.push({ time: t, position: end });
   }
@@ -191,6 +198,9 @@ export function dumanBombasi(vfx, o) {
   const fx = vfx.isVisibleSegment(from, target, R + 2 * U);
   if (fx) {
     vfx.shoot('bomb', hand, land, { duration: flight, arc, scale: 1.6, pitchSpin: 9 });
+    vfx.sound('savurma', from, 0, { gain: 0.8 });
+    vfx.sound('fitil', from, 0.02);
+    vfx.sound('dumanPuf', target, flight);
     const p = new THREE.Vector3();
     for (let k = 0; k <= 14; k++) {
       const kk = k / 14;
@@ -288,6 +298,8 @@ export function binKesik(vfx, o) {
         growth: 0.3,
       });
       vfx.burst(BLADE.spark, c, vfx.n(5), { delay: t + dur * 0.35, speed: [3, 8] });
+      vfx.sound('savurma', target, t, { gain: 0.7 });
+      if (i % 2 === 0) vfx.sound('kilicVurus', target, t + dur * 0.35, { gain: 0.6 });
       vfx.burst(BLADE.glow, c, 1, { delay: t + dur * 0.3, sizeMul: 0.45 });
       if (i % 3 === 0) {
         a.randomDirection().multiplyScalar(1.8 * U);
@@ -299,6 +311,10 @@ export function binKesik(vfx, o) {
 
   if (fx) {
     dustRing(vfx, dashEnd, { size: 0.6 });
+    vfx.sound('atilma', from, 0);
+    if (o.voice) vfx.sound(`hiya${o.voice}`, target, finaleT - 0.35, { gain: 0.8 });
+    vfx.sound('kesikFinal', target, finaleT - 0.1);
+    vfx.sound('sokDalgasi', target, finaleT + 0.05, { gain: 0.8 });
     vfx.trail(v3(from).addScaledVector(UP, 0.9 * U), v3(dashEnd).addScaledVector(UP, 0.9 * U), {
       duration: dashT,
       length: 0.1,
