@@ -1,0 +1,33 @@
+# HTTPS kurulum (alan adı ile, sertifika Let's Encrypt'ten otomatik alınır):
+#   DOMAIN=demo.ornek.com docker compose -f docker-compose.https.yml up -d --build
+# Alan adının DNS A kaydı bu sunucunun dış IP'sine yönlenmeli; 80 ve 443 portları açık olmalı.
+name: reklam-simulator
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: simulator/deploy/Dockerfile
+    image: reklam-simulator:latest
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  caddy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    depends_on:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN:?DOMAIN ortam değişkeni gerekli, ör. DOMAIN=demo.ornek.com}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:

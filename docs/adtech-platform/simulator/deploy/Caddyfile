@@ -1,0 +1,9 @@
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:80
+
+	# Sunumu şifreyle korumak isterseniz (README'de anlatıldığı gibi hash üretip açın):
+	# basic_auth {
+	# 	sunum <caddy hash-password ile üretilen hash>
+	# }
+}

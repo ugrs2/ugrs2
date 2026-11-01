@@ -1,0 +1,12 @@
+# HTTP kurulum: http://SUNUCU_IP/   (port değiştirmek için: PORT=8080 docker compose up -d --build)
+name: reklam-simulator
+
+services:
+  web:
+    build:
+      context: ../..
+      dockerfile: simulator/deploy/Dockerfile
+    image: reklam-simulator:latest
+    restart: unless-stopped
+    ports:
+      - "${PORT:-80}:80"
