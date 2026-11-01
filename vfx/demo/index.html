@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Prosedürel Yetenek Efektleri — Demo</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@700;800;900&display=swap" rel="stylesheet" />
+    <style>
+      :root {
+        --panel: rgba(33, 27, 22, 0.92);
+        --pill: #2f2924;
+        --pill-hover: #40372f;
+        --pill-on: #6b4f22;
+        --text: #f4ead9;
+        --muted: #b5a690;
+        --gold: #f1c45c;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #4f5f54; font-family: 'Nunito', system-ui, -apple-system, 'Segoe UI', sans-serif; color: var(--text); user-select: none; -webkit-user-select: none; }
+      canvas { display: block; touch-action: none; }
+      .card { background: var(--panel); border: 2px solid rgba(241, 196, 92, 0.35); border-radius: 16px; box-shadow: 0 4px 0 rgba(0, 0, 0, 0.35); }
+      #hud { position: fixed; top: 12px; left: 12px; padding: 8px 14px; font-weight: 800; font-size: 14px; line-height: 1.5; }
+      #hud b { color: var(--gold); }
+      #hint { position: fixed; top: 12px; right: 12px; padding: 8px 14px; font-size: 12px; color: var(--muted); font-weight: 700; max-width: 270px; }
+      #panel { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); padding: 10px 14px; display: flex; flex-direction: column; gap: 8px; width: max-content; max-width: calc(100vw - 16px); }
+      .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+      .label { color: var(--muted); font-weight: 800; font-size: 15px; min-width: 86px; }
+      .skills { display: flex; gap: 8px; flex-wrap: wrap; }
+      .pill { background: var(--pill); color: var(--text); border: 0; border-radius: 12px; padding: 7px 12px; font: inherit; font-weight: 900; font-size: 15px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: background 0.12s, transform 0.08s; }
+      .pill:hover { background: var(--pill-hover); }
+      .pill:active { transform: scale(0.96); }
+      .pill.on { background: var(--pill-on); box-shadow: inset 0 0 0 2px var(--gold); }
+      .pill .key { font-size: 11px; color: var(--muted); background: rgba(0, 0, 0, 0.3); border-radius: 6px; padding: 1px 5px; }
+      #controls { display: flex; gap: 8px; flex-wrap: wrap; border-top: 1px solid rgba(255, 255, 255, 0.08); padding-top: 8px; }
+      #controls .pill { font-size: 13px; padding: 6px 10px; }
+      @media (max-height: 500px) {
+        #hint { display: none; }
+        #hud { font-size: 11px; padding: 5px 9px; top: 6px; left: 6px; line-height: 1.35; }
+        #panel { bottom: 6px; padding: 6px 8px; gap: 5px; }
+        .row { gap: 6px; }
+        .label { display: none; }
+        .skills { gap: 5px; }
+        .pill { font-size: 12px; padding: 4px 8px; border-radius: 9px; gap: 4px; }
+        .pill .key { display: none; }
+        #controls { padding-top: 5px; gap: 5px; }
+        #controls .pill { font-size: 11px; padding: 3px 7px; }
+      }
+      @media (max-width: 720px) {
+        .label { min-width: 0; width: 100%; font-size: 13px; }
+        .pill { font-size: 13px; padding: 6px 9px; }
+        #hint { display: none; }
+      }
+    </style>
+    <script type="importmap">
+      { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.187.0/build/three.module.js" } }
+    </script>
+  </head>
+  <body>
+    <div id="hud" class="card">
+      <div><b id="fps">--</b> FPS · <b id="calls">--</b> draw call</div>
+      <div>VFX: <b id="parts">0</b> parçacık · <b id="projs">0</b> mermi · <b id="vfxcalls">7</b> draw call</div>
+      <div id="mode">Kahraman: <b>2</b></div>
+    </div>
+    <div id="hint" class="card">Yaratığa tıkla: hedef seç · 1-8: yetenekler · Boşluk: hepsi<br />Tüm efektler doku kullanmadan shader matematiğiyle çiziliyor.</div>
+    <div id="panel" class="card">
+      <div class="row"><span class="label">🏹 Okçu</span><div class="skills" id="okcu"></div></div>
+      <div class="row"><span class="label">🗡️ Suikastçı</span><div class="skills" id="suikastci"></div></div>
+      <div id="controls">
+        <button class="pill" id="btn-stress">🌍 Toplu Test (100+ kahraman)</button>
+        <button class="pill" id="btn-auto">🔁 Otomatik</button>
+        <button class="pill" id="btn-slow">🐢 Yavaş Çekim</button>
+        <button class="pill on" id="btn-shake">📳 Sarsıntı</button>
+        <button class="pill" id="btn-quality">✨ Kalite: Yüksek</button>
+      </div>
+    </div>
+    <script type="module" src="./demo.js"></script>
+  </body>
+</html>
