@@ -6,6 +6,7 @@ Simülatör tamamen statik bir sitedir: veritabanı ya da arka uç gerekmez. Bur
 |---|---|
 | `kur.sh` | Tek komutla kurulum: gerekirse Docker'ı kurar, imajı üretir, servisi başlatır, `ufw` açıksa portu açar, adresi yazar |
 | `mevcut-nginx.sh` | Sunucuda nginx **zaten kurulu** ise: Docker'sız, sayfayı varsayılan siteye yerleştirir (eski sayfayı yedekler) |
+| `nginx-https.sh` | Mevcut nginx'e **alan adı + HTTPS** sitesi ekler: ayrı klasör, Let's Encrypt sertifikası, HTTP→HTTPS yönlendirme |
 | `Dockerfile` | Kaynak dosyalardan tek dosyalık sürümü üretir ve nginx imajına koyar; mimari dokümanları `/docs/` altına ekler |
 | `nginx.conf` | Gzip, güvenlik başlıkları, `/saglik` sağlık kontrolü, dokümanları düz metin sunma |
 | `docker-compose.yml` | HTTP kurulum (varsayılan port 80) |
@@ -20,6 +21,23 @@ curl -fsSL https://raw.githubusercontent.com/ugrs2/ugrs2/ccr-916e2c32-oqoxdo/doc
 ```
 
 Betik varsayılan sitenin klasörünü bulur, eski `index.html`'i tarihli yedekler, simülatörü indirip koyar, `nginx -t` ile denetleyip yeniden yükler, `ufw` açıksa 80'i açar ve yayındaki sayfanın gerçekten simülatör olduğunu doğrular. Güncellemek için aynı satırı tekrar çalıştırın.
+
+### Alan adı + HTTPS (mevcut nginx)
+
+DNS'te alan adı için sunucunun IP'sini gösteren bir **A kaydı** açın (Cloudflare kullanıyorsanız "DNS only", gri bulut). Sonra sunucuda:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ugrs2/ugrs2/ccr-916e2c32-oqoxdo/docs/adtech-platform/simulator/deploy/nginx-https.sh | sudo DOMAIN=simulator.ornek.com bash
+```
+
+Betik sırasıyla:
+1. Alan adının DNS'te bu sunucuyu gösterdiğini ve başka bir nginx sitesinde tanımlı **olmadığını** kontrol eder; tanımlıysa hiçbir şeye dokunmadan durur.
+2. Sayfayı `/var/www/<alan adı>/` klasörüne koyar. Ayarı `sites-available` + `sites-enabled` bağlantısı olarak (yoksa `conf.d` altına) yazar.
+3. Let's Encrypt sertifikasını `certbot --webroot` ile alır (certbot yoksa kurar). Yenileme certbot'un zamanlayıcısıyla otomatik yapılır, yenilemeden sonra nginx yeniden yüklenir.
+4. HTTPS ayarını yükler (HTTP/2, HSTS, güvenlik başlıkları, HTTP→HTTPS 301). Her adımda `nginx -t` çalıştırır, hata olursa değişikliği geri alır.
+5. Sonucu doğrular: sayfa geçerli sertifikayla açılıyor mu, yönlendirme çalışıyor mu.
+
+Başka sitelerin ayarlarına dokunmaz. Yedekler `/root/nginx-yedek/` altına alınır; nginx'in okuduğu klasörlere yedek dosyası bırakılmaz. Güncellemek için aynı satırı tekrar çalıştırın; sertifika varsa yeniden alınmaz.
 
 ## 1. Hızlı kurulum (Docker ile)
 
