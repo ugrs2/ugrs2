@@ -5,12 +5,23 @@ Simülatör tamamen statik bir sitedir: veritabanı ya da arka uç gerekmez. Bur
 | Dosya | Görevi |
 |---|---|
 | `kur.sh` | Tek komutla kurulum: gerekirse Docker'ı kurar, imajı üretir, servisi başlatır, `ufw` açıksa portu açar, adresi yazar |
+| `mevcut-nginx.sh` | Sunucuda nginx **zaten kurulu** ise: Docker'sız, sayfayı varsayılan siteye yerleştirir (eski sayfayı yedekler) |
 | `Dockerfile` | Kaynak dosyalardan tek dosyalık sürümü üretir ve nginx imajına koyar; mimari dokümanları `/docs/` altına ekler |
 | `nginx.conf` | Gzip, güvenlik başlıkları, `/saglik` sağlık kontrolü, dokümanları düz metin sunma |
 | `docker-compose.yml` | HTTP kurulum (varsayılan port 80) |
 | `docker-compose.https.yml` + `Caddyfile` | Alan adıyla HTTPS kurulum |
 
-## 1. Hızlı kurulum (önerilen)
+## 0. Sunucuda nginx zaten çalışıyorsa (en kısa yol)
+
+Tarayıcıda sunucunun IP'sini açınca "Welcome to nginx!" görüyorsanız nginx 80 portunu zaten kullanıyordur; Docker'lı kurulum bu porta bağlanamaz. Sunucuya SSH ile girip tek satır yeterli:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ugrs2/ugrs2/ccr-916e2c32-oqoxdo/docs/adtech-platform/simulator/deploy/mevcut-nginx.sh | sudo bash
+```
+
+Betik varsayılan sitenin klasörünü bulur, eski `index.html`'i tarihli yedekler, simülatörü indirip koyar, `nginx -t` ile denetleyip yeniden yükler, `ufw` açıksa 80'i açar ve yayındaki sayfanın gerçekten simülatör olduğunu doğrular. Güncellemek için aynı satırı tekrar çalıştırın.
+
+## 1. Hızlı kurulum (Docker ile)
 
 Gereken: Ubuntu/Debian (ya da Docker çalışan herhangi bir Linux), `git`, `curl`, root yetkisi.
 

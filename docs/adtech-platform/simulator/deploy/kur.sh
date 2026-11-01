@@ -43,7 +43,8 @@ else
 fi
 
 # Sunucu güvenlik duvarı (ufw etkinse) portları açar
-if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+ufw_status="$(ufw status 2>/dev/null || true)"   # "| grep -q" + pipefail SIGPIPE yüzünden yanlış sonuç verebilir
+if [[ "$ufw_status" == *"Status: active"* ]]; then
   for p in $ports; do ufw allow "$p/tcp" >/dev/null && echo "▸ ufw: $p/tcp açıldı"; done
 fi
 
