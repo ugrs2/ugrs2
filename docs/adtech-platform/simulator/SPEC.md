@@ -494,6 +494,15 @@ Sekmeler (id → başlık):
 - **main.js:** `SIM.engine.init()` → mount'lar (`diagram`, `device`, `inspector`, `controls`, `tour`) → hash kontrolü. Herhangi bir modül eksikse diğerleri çalışmaya devam eder (try/catch).
 - **tools/bundle.mjs:** `index.html`'i okuyup css/js dosyalarını satır içine gömer → `dist/simulator.html` (tek dosya, `file://` ve barındırma için).
 
+### 10.1 Entegrasyon ekleri (yalnızca ek; yukarıdaki sözleşme değişmedi)
+- `SIM.controls = { mount(), runChip(id), chips, scrollToMap(force), backToSite(), togglePause(), stepNext(), whenIdle(maxMs) -> Promise<bool>, mapVisibleRatio() }`. Çip id'leri: `consent, article, product, cart, login, click, purchase, cleanroom, campaign, dsar` (DOM: `#ct-chip-<id>`). "Kampanya güncelle" çipi demo değişikliği olarak LI 101 CPM fiyatını 85 ↔ 95 ₺ yapar. Üst bar id'leri: `#ct-pause`, `#ct-step`, `#ct-next`, `#ct-ambient`, `#ct-reset`; anlatım şeridindeki ileri butonu `#ct-narr-next`; telefonda `#ct-backtosite`.
+- `SIM.tour = { mount(), start(i=0), stop(), next(), prev(), goTo(i), replay(), isActive(), current(), runPromise() -> Promise<{ok, cancelled, check}>, chapters }`. Hash: `#tur` (bölüm 1) veya `#tur-N`; tur sırasında hash `#tur-N` olarak güncellenir. Klavye: PageDown/PageUp bölüm, Esc çıkış. Bölüm 1 her zaman simülasyonu sıfırlar; diğer bölümler eksik önkoşulları (rıza, giriş, gösterilmiş reklam, DSAR sonrası sıfırlama) kendileri tamamlar.
+- Ek bus olayları: `'controls:chip' {id, phase:'start'|'end', result?}`, `'controls:reset' {}`, `'tour:start' {index}`, `'tour:chapter' {index, id}`, `'tour:chapter:done' {index, id, ok, cancelled, check}`, `'tour:end' {completed}`, `'app:ready' {}`.
+- `SIM.ready = true` tüm mount'lar bitince; `SIM.bundled = true` yalnızca `dist/simulator.html`'de (main.js bu durumda `SIM.inspector.docsBase = '../../'` yapar).
+- `<html>` sınıfları: `sim-paused`, `sim-stepmode`, `tour-on` (+ `--tour-card-h` CSS değişkeni). Tur açıkken masaüstünde kart cihaz sütununun altına oturur ve cihaz çerçevesi kısalır (min 380px); tablette altta geniş bant; telefonda aksiyon çubuğunun üstünde alt sayfa.
+- Telefonda (< 820px) `#narration` CSS `order` ile haritanın üstüne alınır ve `position: sticky` olur (harita ekrandan uzun olduğu için metin hep görünür).
+- Klavye: Boşluk, fareyle/dokunarak odaklanmış butonda da duraklatır (çip yeniden tetiklenmez); klavyeyle (Tab) odaklanmış kontrolde ve yazı alanlarında kendi işini yapar; odaktaki harita istasyonunda Boşluk'u harita kendisi tüketir (seçim).
+
 ## 11. Kalite ölçütleri
 - Konsolda hata yok (1440×900 ve 390×844).
 - Açılışta sayfa "dolu" görünür: harita çizili, arka plan trafiği akıyor, cihazda rıza banner'ı, inspector'da örnek içerik (raporlar dolu).

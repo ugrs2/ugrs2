@@ -1,1 +1,356 @@
-/* css/diagram.css — owner: diagram module (placeholder; will be overwritten) */
+/* diagram.css — [diagram] metro haritası (SPEC.md §3, §7)
+ * Tüm renkler token'dan: hat rengi için öğeye data-line verilir → var(--lc) / var(--lf) (base.css).
+ * Yazı boyları SVG kullanıcı biriminde JS tarafından verilir (ölçeğe göre ≥ 11 px kalacak şekilde).
+ */
+
+/* ------------------------------------------------------------------
+ * Kök ve sahne
+ * ------------------------------------------------------------------ */
+#diagram-root.dg-root { overflow: hidden; }
+.dg-stage {
+  position: relative;
+  width: 100%;
+}
+.dg-stage.is-fit {
+  position: absolute;
+  inset: 6px 8px;
+  width: auto;
+}
+.dg-svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dg-stage.is-fit > .dg-svg { height: 100%; }
+.dg-root.dg-flow .dg-stage { padding: 4px 0 6px; }
+
+/* ------------------------------------------------------------------
+ * Bölgeler (semtler)
+ * ------------------------------------------------------------------ */
+.dg-zone { --zc: var(--muted); }
+.dg-zone[data-line] { --zc: var(--lc); }
+.dg-zone-area {
+  fill: var(--zc);
+  fill-opacity: 0.055;
+  stroke: var(--zc);
+  stroke-opacity: 0.42;
+  stroke-width: 1.2;
+  stroke-dasharray: 5 4;
+}
+.dg-zone-label {
+  --zc: var(--muted);
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  fill: var(--muted);
+  fill: color-mix(in srgb, var(--zc) 55%, var(--ink));
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.4px;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.dg-zone-label[data-line] { --zc: var(--lc); }
+
+/* ------------------------------------------------------------------
+ * Hatlar (kenarlar)
+ * ------------------------------------------------------------------ */
+.dg-casing {
+  fill: none;
+  stroke: var(--bg);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.dg-lane {
+  fill: none;
+  stroke: var(--lc);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity var(--dur-2) ease, stroke-width var(--dur-2) ease;
+}
+.dg-lane.is-live { stroke-width: 5.4px; }
+.dg-lane.is-hot { stroke-width: 7px; filter: drop-shadow(0 0 3px var(--lc)); }
+
+.dg-edge-label {
+  font-family: var(--font-mono);
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.2px;
+  stroke-linejoin: round;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-2) ease;
+}
+.dg-edge-label.is-on { opacity: 1; }
+
+.dg-ghost {
+  fill: none;
+  stroke: var(--lc, var(--muted));
+  stroke-width: 2;
+  stroke-dasharray: 3 5;
+  stroke-linecap: round;
+  opacity: 0.55;
+}
+.dg-ghost.is-hot { opacity: 0.9; stroke-width: 3; }
+
+/* ------------------------------------------------------------------
+ * İstasyonlar
+ * ------------------------------------------------------------------ */
+.dg-st { cursor: pointer; outline: none; }
+.dg-st-hit, .dg-st-labhit { fill: transparent; stroke: none; }
+.dg-zone-area, .dg-casing, .dg-lane, .dg-trail, .dg-ghost { pointer-events: none; }
+.dg-st-ring {
+  fill: var(--surface);
+  stroke: var(--lc);
+  stroke-width: 3.2;
+  transition: stroke-width var(--dur-1) ease;
+}
+.dg-st.is-hub .dg-st-ring { stroke: var(--ink); stroke-width: 3.8; }
+.dg-st.is-ext .dg-st-ring { stroke-dasharray: 3.4 2.6; stroke-width: 2.6; fill: var(--surface-2); }
+.dg-st-core { fill: var(--ink); }
+.dg-st-sel {
+  fill: var(--lc);
+  fill-opacity: 0.16;
+  stroke: var(--ink);
+  stroke-width: 2;
+  opacity: 0;
+}
+.dg-st-focus {
+  fill: none;
+  stroke: var(--focus);
+  stroke-width: 2.6;
+  opacity: 0;
+}
+.dg-st:hover .dg-st-ring { stroke-width: 4.4; }
+.dg-st.is-hub:hover .dg-st-ring { stroke-width: 5; }
+.dg-st.is-selected .dg-st-sel { opacity: 1; }
+.dg-st:focus-visible .dg-st-focus { opacity: 1; }
+.dg-st:focus-visible .dg-st-label { text-decoration: underline; text-decoration-thickness: 1.5px; }
+
+.dg-st-label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  fill: var(--ink);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.6px;
+  stroke-linejoin: round;
+}
+.dg-st-sub {
+  font-family: var(--font-body);
+  font-weight: 400;
+  fill: var(--muted);
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.dg-st.is-selected .dg-st-label { text-decoration: underline; text-decoration-thickness: 2px; text-underline-offset: 2px; }
+
+/* ------------------------------------------------------------------
+ * Rozet (kalıcı sayaç)
+ * ------------------------------------------------------------------ */
+.dg-badge { pointer-events: none; }
+.dg-badge-bg { fill: var(--ink); }
+.dg-badge-tx {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  fill: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+.dg-badge.is-bump { animation: dg-bump 420ms var(--ease-out); transform-box: fill-box; transform-origin: center; }
+@keyframes dg-bump {
+  0% { opacity: 0.35; }
+  100% { opacity: 1; }
+}
+
+/* ------------------------------------------------------------------
+ * Paketler ve izler
+ * ------------------------------------------------------------------ */
+.dg-pk { pointer-events: none; }
+.dg-pk-bg {
+  fill: var(--lf, var(--ink));
+  stroke: var(--surface);
+  stroke-width: 1.4;
+}
+.dg-pk-tx {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  fill: var(--on-line, #fff);
+  letter-spacing: 0;
+}
+.dg-trail {
+  fill: none;
+  stroke: var(--lc);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.dg-trail-a { opacity: 0.16; }
+.dg-trail-b { opacity: 0.34; }
+.dg-amb {
+  /* arka plan trafiği: hat renginde, yüzey halkalı küçük "vagon" — aynı renkli hattın üstünde de seçilsin */
+  r: 3.6px;
+  fill: var(--lc);
+  stroke: var(--surface);
+  stroke-width: 1.6;
+  opacity: 0.78;
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------------
+ * Nabız ve yüzen metin
+ * ------------------------------------------------------------------ */
+.dg-fx { pointer-events: none; }
+.dg-fx-ring {
+  fill: none;
+  stroke: var(--lc);
+  stroke-width: 3;
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: dg-ring 720ms var(--ease-out) forwards;
+}
+@keyframes dg-ring {
+  0%   { transform: scale(1);   opacity: 0.95; stroke-width: 3.4; }
+  100% { transform: scale(2.6); opacity: 0;    stroke-width: 0.6; }
+}
+.dg-fx-chip { animation: dg-chip 1500ms var(--ease-out) forwards; }
+.dg-fx-chip rect { fill: var(--surface); stroke: var(--lc); stroke-width: 1.4; }
+.dg-fx-chip text {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  fill: var(--ink);
+}
+@keyframes dg-chip {
+  0%   { transform: translateY(6px); opacity: 0; }
+  14%  { transform: translateY(0);   opacity: 1; }
+  70%  { transform: translateY(-10px); opacity: 1; }
+  100% { transform: translateY(-20px); opacity: 0; }
+}
+/* hareket azaltılmışken: yer değiştirme yok, kısa vurgu */
+.dg-fx.is-static .dg-fx-ring { animation: none; opacity: 0.9; stroke-width: 4; }
+.dg-fx.is-static .dg-fx-chip { animation: none; opacity: 1; transform: none; }
+
+.dg-svg.is-paused .dg-fx-ring,
+.dg-svg.is-paused .dg-fx-chip,
+.dg-svg.is-paused .dg-badge.is-bump { animation-play-state: paused; }
+
+/* ------------------------------------------------------------------
+ * Odak (tur) ve hat vurgusu
+ * ------------------------------------------------------------------ */
+.dg-zone, .dg-zone-label, .dg-edge, .dg-st, .dg-badge, .dg-casing { transition: opacity var(--dur-3) var(--ease-out); }
+
+.dg-svg.has-focus .dg-st:not(.is-focus),
+.dg-svg.has-focus .dg-badge:not(.is-focus) { opacity: 0.2; }
+.dg-svg.has-focus:not(.has-line) .dg-edge:not(.is-focus) { opacity: 0.13; }
+.dg-svg.has-focus.has-line .dg-edge:not(.is-focus) .dg-lane:not(.is-on) { opacity: 0.08; }
+.dg-svg.has-focus .dg-zone:not(.is-focus),
+.dg-svg.has-focus .dg-zone-label:not(.is-focus) { opacity: 0.35; }
+
+.dg-svg.has-line .dg-lane:not(.is-on) { opacity: 0.13; }
+.dg-svg.has-line .dg-lane.is-on { stroke-width: 5.6px; }
+.dg-svg.has-line .dg-st:not(.is-on) { opacity: 0.3; }
+.dg-svg.has-line.has-focus .dg-st.is-focus:not(.is-on) { opacity: 0.55; }
+
+/* ------------------------------------------------------------------
+ * Lejant
+ * ------------------------------------------------------------------ */
+#map-legend.dg-legend {
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.dg-legend-lines {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 4px;
+  min-width: 0;
+}
+.dg-legend-btn {
+  -webkit-appearance: none;
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 3px 9px 3px 5px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-1) ease, border-color var(--dur-1) ease, opacity var(--dur-2) ease;
+}
+.dg-legend-btn:hover { background: var(--surface-2); border-color: var(--rule); }
+.dg-legend-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.dg-legend-btn[aria-pressed="true"] {
+  background: var(--surface-2);
+  border-color: var(--lc);
+  box-shadow: inset 0 -3px 0 var(--lc);
+}
+#map-legend.has-line .dg-legend-btn[aria-pressed="false"] { opacity: 0.55; }
+#map-legend.has-line .dg-legend-btn[aria-pressed="false"]:hover { opacity: 1; }
+.dg-legend-btn .line-badge { --size: 18px; }
+.dg-short { display: none; }
+
+.dg-legend-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: var(--fs-2xs);
+  line-height: 1.3;
+}
+.dg-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.dg-key-ico { width: 16px; height: 16px; flex: 0 0 auto; }
+.dg-key-ico .k-hub { fill: var(--surface); stroke: var(--ink); stroke-width: 2.6; }
+.dg-key-ico .k-core { fill: var(--ink); }
+.dg-key-ico .k-ext { fill: var(--surface-2); stroke: var(--muted); stroke-width: 2; stroke-dasharray: 3 2.2; }
+
+/* Dar harita (ör. 1180–1440 orta sütun): kısa adlar */
+@media (max-width: 1439.98px) and (min-width: 1180px) {
+  .dg-legend-btn .dg-full { display: none; }
+  .dg-legend-btn .dg-short { display: inline; }
+  .dg-key-hint { display: none; }
+}
+@media (max-width: 1023.98px) {
+  .dg-legend-btn .dg-full { display: none; }
+  .dg-legend-btn .dg-short { display: inline; }
+  .dg-key-hint { display: none; }
+}
+
+/* Telefon: rozet + kısa ad, sarılır; dokunma hedefi ≥ 40px */
+@media (max-width: 819.98px), (pointer: coarse) {
+  .dg-legend-btn { min-height: var(--touch, 40px); padding: 4px 8px 4px 6px; font-size: 15px; }
+}
+@media (max-width: 819.98px) {
+  #map-legend.dg-legend { gap: 6px 10px; }
+  .dg-legend-lines { gap: 2px 2px; }
+  .dg-legend-keys { width: 100%; }
+}
+
+/* ------------------------------------------------------------------
+ * Hareket azaltma
+ * ------------------------------------------------------------------ */
+@media (prefers-reduced-motion: reduce) {
+  .dg-lane, .dg-zone, .dg-edge, .dg-st, .dg-badge, .dg-casing { transition: none; }
+}
+:root[data-motion="reduce"] .dg-lane,
+:root[data-motion="reduce"] .dg-st,
+:root[data-motion="reduce"] .dg-edge { transition: none; }
