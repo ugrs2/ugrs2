@@ -212,24 +212,47 @@ export class SFXPlayer {
     }
     if (near >= def.limit) return null;
 
-    // ses sınırı
-    const prio = (opts.priority ?? 0) + def.priority;
-    this.voices = this.voices.filter((v) => v.end > ctx.currentTime);
-    // yeni sesin ilk 250 ms'sinde çalacak (planlanmış olanlar dahil) tüm sesler
-    const overlapping = this.voices.filter((v) => v.start < when + 0.25 && v.end > when);
-    if (overlapping.length >= this.maxVoices) {
-      let low = null;
-      for (const v of overlapping) if (!low || v.prio < low.prio || (v.prio === low.prio && v.g < low.g)) low = v;
-      if (!low || low.prio > prio || (low.prio === prio && low.g >= g)) return null;
-      low.stop(0.02);
-    }
-
     const list = this.buffers.get(id) || this.bake(id, 1);
     const buffer = list[(Math.random() * list.length) | 0];
+    const loop = !!(opts.loop ?? def.loop);
+    const rate = (opts.rate ?? 1) * (1 + (Math.random() * 2 - 1) * def.rate);
+    const end = loop ? Infinity : when + buffer.duration / rate;
+
+    // ses sınırı: yeni ses çalarken (planlanmış sesler dahil) sınırın dolduğu her anda bir ses yer açmalı.
+    // Sayım yalnız yeni sesin başında ve aralıktaki planlı başlangıçlarda artar: olay taramasıyla o anlar bulunur.
+    const prio = (opts.priority ?? 0) + def.priority;
+    this.voices = this.voices.filter((v) => !v.stopped && v.end > ctx.currentTime);
+    const until = loop ? when + 1 : end; // döngüde ilk 1 sn yeter
+    const overlapping = this.voices.filter((v) => v.start < until && v.end > when);
+    if (overlapping.length >= this.maxVoices) {
+      const ev = [];
+      for (const v of overlapping) {
+        ev.push([Math.max(v.start, when), 1]);
+        if (v.end < until) ev.push([v.end, -1]);
+      }
+      ev.sort((a, b) => a[0] - b[0] || a[1] - b[1]); // aynı anda biten, başlayandan önce
+      const full = [];
+      let c = 0;
+      for (const [t, d] of ev) if ((c += d) >= this.maxVoices && d > 0) full.push(t);
+      const victims = new Set();
+      for (const p of full) {
+        let n = 0;
+        let low = null;
+        for (const v of overlapping) {
+          if (victims.has(v) || v.start > p || v.end <= p) continue;
+          n++;
+          if (!low || v.prio < low.prio || (v.prio === low.prio && v.g < low.g)) low = v;
+        }
+        if (n < this.maxVoices) continue;
+        if (!low || low.prio > prio || (low.prio === prio && low.g >= g)) return null;
+        victims.add(low);
+      }
+      for (const v of victims) v.stop(0.02);
+    }
+
     const src = ctx.createBufferSource();
     src.buffer = buffer;
-    src.loop = !!(opts.loop ?? def.loop);
-    const rate = (opts.rate ?? 1) * (1 + (Math.random() * 2 - 1) * def.rate);
+    src.loop = loop;
     src.playbackRate.value = rate;
 
     const amp = ctx.createGain();
@@ -248,9 +271,22 @@ export class SFXPlayer {
       prio,
       g,
       start: when,
-      end: src.loop ? Infinity : when + buffer.duration / rate,
+      end,
+      stopped: false,
       stop: (fade = 0.05) => {
-        const t = Math.max(ctx.currentTime, voice.start);
+        // durdurulan ses sönerken artık sayılmaz; yoksa her yeni seste yeniden "en zayıf" seçilir ve sınır delinir
+        voice.stopped = true;
+        if (voice.start > ctx.currentTime) {
+          // henüz başlamamış: hiç çalmasın (başlangıçta durdurulan kaynak ses vermez)
+          try {
+            src.stop(voice.start);
+          } catch {
+            /* zaten durmuş */
+          }
+          voice.end = voice.start;
+          return;
+        }
+        const t = ctx.currentTime;
         amp.gain.cancelScheduledValues(t);
         amp.gain.setValueAtTime(amp.gain.value, t);
         amp.gain.linearRampToValueAtTime(0, t + fade);
