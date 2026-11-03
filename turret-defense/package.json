@@ -1,0 +1,16 @@
+{
+  "name": "kale-savunmasi",
+  "version": "1.0.0",
+  "description": "4 oyunculu, 4 koridorlu three.js turret defense oyunu (telefon + Xbox kolu desteği)",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/sim-test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "three": "^0.186.1",
+    "ws": "^8.21.3"
+  }
+}
