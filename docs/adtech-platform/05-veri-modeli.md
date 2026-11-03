@@ -140,6 +140,32 @@ CREATE TABLE advertisers (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE sites (
+    id              BIGSERIAL PRIMARY KEY,
+    tenant_id       BIGINT      NOT NULL REFERENCES tenants(id),
+    domain_or_bundle TEXT       NOT NULL,
+    platform        TEXT        NOT NULL CHECK (platform IN ('web','ios','android','ctv')),
+    UNIQUE (tenant_id, domain_or_bundle)
+);
+
+CREATE TABLE ad_units (
+    id              BIGSERIAL PRIMARY KEY,
+    tenant_id       BIGINT      NOT NULL REFERENCES tenants(id),
+    site_id         BIGINT      NOT NULL REFERENCES sites(id),
+    code            TEXT        NOT NULL,
+    formats         TEXT[]      NOT NULL DEFAULT '{display}',
+    floor_micros    BIGINT      NOT NULL DEFAULT 0,
+    UNIQUE (site_id, code)
+);
+
+CREATE TABLE deals (
+    deal_id         TEXT        PRIMARY KEY,               -- OpenRTB pmp.deals.id
+    tenant_id       BIGINT      NOT NULL REFERENCES tenants(id),
+    type            TEXT        NOT NULL CHECK (type IN ('pmp','preferred','programmatic_guaranteed')),
+    price_micros    BIGINT,                                -- sabit fiyat veya floor
+    buyer_seat      TEXT
+);
+
 CREATE TABLE campaigns (
     id              BIGSERIAL PRIMARY KEY,
     tenant_id       BIGINT      NOT NULL REFERENCES tenants(id),
@@ -175,12 +201,21 @@ CREATE TABLE line_items (
     end_at          TIMESTAMPTZ NOT NULL,
     targeting       JSONB       NOT NULL DEFAULT '{}'::jsonb,   -- hedefleme DSL'i
     frequency_caps  JSONB       NOT NULL DEFAULT '[]'::jsonb,   -- [{scope,max,window}]
-    deal_id         TEXT,
-    status          TEXT        NOT NULL DEFAULT 'draft',
+    deal_id         TEXT        REFERENCES deals(deal_id),
+    status          TEXT        NOT NULL DEFAULT 'draft'
+                    CHECK (status IN ('draft','active','paused','completed','archived')),
     version         INT         NOT NULL DEFAULT 1,             -- config dağıtımında optimistic versioning
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (end_at > start_at)
 );
 CREATE INDEX ON line_items (tenant_id, status, start_at, end_at);
+
+-- Ad unit hedeflemesi (N:M); segment hedeflemesi targeting DSL'inde, ters indeks için ayrıca tutulur
+CREATE TABLE line_item_ad_units (
+    line_item_id    BIGINT NOT NULL REFERENCES line_items(id),
+    ad_unit_id      BIGINT NOT NULL REFERENCES ad_units(id),
+    PRIMARY KEY (line_item_id, ad_unit_id)
+);
 
 CREATE TABLE creatives (
     id              BIGSERIAL PRIMARY KEY,
@@ -216,7 +251,15 @@ CREATE TABLE segments (
     exportable      BOOLEAN     NOT NULL DEFAULT true,  -- clean room segmentlerinde false
     consent_purposes TEXT[]     NOT NULL DEFAULT '{profiling,personalized_ads}',
     source_collaboration_id TEXT,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- Clean room'dan gelen opak segmentler asla dışa aktarılamaz (politika DB seviyesinde de zorlanır)
+    CHECK (kind <> 'clean_room' OR (exportable = false AND source_collaboration_id IS NOT NULL))
+);
+
+CREATE TABLE line_item_segments (
+    line_item_id    BIGINT NOT NULL REFERENCES line_items(id),
+    segment_id      BIGINT NOT NULL REFERENCES segments(id),
+    PRIMARY KEY (line_item_id, segment_id)
 );
 
 -- Her değişiklik için değiştirilemez denetim kaydı
@@ -230,6 +273,16 @@ CREATE TABLE audit_log (
     diff            JSONB,
     at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Değiştirilemezlik: uygulama rolü yalnızca INSERT yapabilir; UPDATE/DELETE tetikleyiciyle de engellenir.
+-- (Kurcalamaya karşı ek güvence için kayıtlar periyodik olarak imzalanıp WORM depoya / Iceberg'e kopyalanır.)
+REVOKE UPDATE, DELETE, TRUNCATE ON audit_log FROM PUBLIC;
+CREATE FUNCTION audit_log_immutable() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log değiştirilemez';
+END $$;
+CREATE TRIGGER audit_log_no_change BEFORE UPDATE OR DELETE ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION audit_log_immutable();
 ```
 
 ## 5.3 Profil Kaydı (Aerospike)
@@ -248,7 +301,8 @@ set: profile                       -- kişi profili
   bins:
     ids     : map  { "fpc:7f3a..": 1729700000, "hem:9b1c..": 1729000000, "maid:..": ... }
     seg     : map  { 10234: 1732300000, 10235: 1731000000 }        -- seg_id → expire_epoch
-    fcap    : map  { "li:5512": [h0,h1,...,h23], "cmp:88": [...] }  -- saatlik kova sayaçları
+    fcap    : map  { "li:5512": { "h": [h0..h23], "d": [d0..d29], "total": 7, "t0": 1729699200 },
+                     "cmp:88": {...} }   -- saatlik + günlük kova, ömür boyu toplam; t0 = kova başlangıcı
     attrs   : map  { "geo_home": "istanbul", "ltv_band": 3, "lang": "tr" }
     consent : map  { "tcf": "<TC string hash>", "purposes": 0b1111111111,
                      "kvkk_explicit": true, "iys_email": false, "updated": 1729700000 }
@@ -412,7 +466,7 @@ ORDER BY (tenant_id, event_type, campaign_id, line_item_id, event_time)
 TTL event_date + INTERVAL 90 DAY
 SETTINGS index_granularity = 8192;
 
--- Saatlik agrega: rapor ekranları bu tablodan beslenir (13 ay saklama)
+-- Saatlik agrega: rapor ekranları bu tablodan beslenir (25 ay saklama — bkz. 7.4)
 CREATE TABLE ads.ad_stats_hourly ON CLUSTER main
 (
     hour            DateTime,
@@ -433,7 +487,7 @@ CREATE TABLE ads.ad_stats_hourly ON CLUSTER main
 ENGINE = ReplicatedAggregatingMergeTree
 PARTITION BY toYYYYMM(hour)
 ORDER BY (tenant_id, hour, campaign_id, line_item_id, creative_id, ad_unit_id, country, device_type)
-TTL hour + INTERVAL 13 MONTH;
+TTL hour + INTERVAL 25 MONTH;
 
 CREATE MATERIALIZED VIEW ads.mv_ad_stats_hourly ON CLUSTER main
 TO ads.ad_stats_hourly AS
@@ -444,14 +498,14 @@ SELECT
     sumState(toUInt64(event_type = 'viewable'))       AS viewables,
     sumState(toUInt64(event_type = 'click'))          AS clicks,
     sumState(toUInt64(event_type = 'conversion'))     AS conversions,
-    sumState(if(event_type = 'impression', price_micros, 0)) AS revenue_micros,
+    sumState(if(event_type IN ('request', 'decision'), 0, price_micros)) AS revenue_micros,  -- karar fiyatı gelir değildir; nota bkz.
     uniqCombined64StateIf(person_id, event_type = 'impression') AS reach
 FROM ads.ad_events
 WHERE is_ivt = 0
 GROUP BY hour, tenant_id, campaign_id, line_item_id, creative_id, ad_unit_id, country, device_type;
 ```
 
-> Not: Gelir, "impression" olayındaki `price_micros` üzerinden hesaplanır (CPM / 1000 karşılığı olarak Flink'te gösterim başına fiyata çevrilmiş olmalıdır). CPC/CPA modellerinde gelir, ilgili click/conversion olayına yazılır.
+> Not: `price_micros` yalnızca **faturalanan olayda** doludur, diğer olaylarda 0'dır; böylece gelir çift sayılmaz. Faturalanan olay fiyatlama modeline göre belirlenir: CPM → "impression", vCPM → "viewable", CPCV → "complete", CPC → "click", CPA → "conversion". Fiyat Flink'te olay başına tutara çevrilmiş olarak yazılır (ör. CPM / 1000).
 
 ## 5.6 Kafka Topic Tasarımı
 

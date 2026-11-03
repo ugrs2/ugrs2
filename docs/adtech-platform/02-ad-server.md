@@ -43,12 +43,13 @@ sequenceDiagram
     P->>G: Ad request (ad unit, sayfa URL, rıza dizesi, 1P id, MAID, PPID)
     G->>D: Doğrulanmış istek + GeoIP + UA
     D->>D: Rıza kontrolü (amaç 1, 3, 4 / KVKK açık rıza)
-    par Paralel okumalar (timeout 5 ms)
+    par Kimlik + profil (sıralı iki okuma, toplam timeout 5 ms)
         D->>I: id → person_id
         I-->>D: person_id
+        Note over D,PR: Profil anahtarı tenant:person_id olduğu için<br/>bu okuma idmap yanıtını bekler
         D->>PR: profil (segment, fcap, attrs)
         PR-->>D: profil kaydı
-    and Programatik talep (timeout 80-150 ms)
+    and Programatik talep (Exchange tmax ≈ 100 ms, bkz. 9)
         D->>HB: OpenRTB 2.6 BidRequest (user.data segmentleri, schain, deal id)
         HB-->>D: BidResponse listesi
     end
@@ -90,7 +91,7 @@ Hedefleme DSL örneği:
 
 ### 2.3.2 Frequency Capping
 - Kurallar: `{ "scope": "line_item|campaign|advertiser", "max": 3, "window": "24h" }` (çoklu kural desteklenir).
-- Sayaçlar profil kaydında `fcap` haritasında, saatlik kova (bucket) dizisi olarak tutulur → kayan pencere hesabı ucuz olur.
+- Sayaçlar profil kaydında `fcap` haritasında iki çözünürlükte tutulur: son 24 saat için **saatlik** kovalar (24 eleman) ve son 30 gün için **günlük** kovalar (30 eleman) → `≤ 24h` pencereler saatlik, `7d` / `30d` pencereler günlük kovalardan ucuzca hesaplanır. 30 günden uzun (ör. kampanya ömrü boyu) kurallar için ayrı bir toplam sayaç (`total`) tutulur.
 - **İki aşamalı güncelleme:** (1) Ad server, yanıt döndüğü anda yerel/iyimser sayaç artırır (burst'te aşırı teslimatı önler); (2) gerçek impression olayı Flink üzerinden profil deposunda kalıcı sayacı artırır.
 - Kimliği olmayan trafik için: istemci tarafı (localStorage) fcap veya oturum bazlı fcap.
 
@@ -115,7 +116,7 @@ Hedefleme DSL örneği:
 - Kalibrasyon (isotonic regression) şarttır; aksi halde CPC/CPA kampanyalar CPM ile adil yarışamaz.
 
 ### 2.3.5 Birleşik Açık Artırma
-- Katılımcılar: direct line item'lar (eCPM), header bidding teklifleri (Prebid), OpenRTB teklifleri, deal'ler.
+- Katılımcılar: direct line item'lar (eCPM), header bidding teklifleri (Prebid), Ad Exchange'in kazanan teklifi (kendi DSP'miz + harici DSP'ler, bkz. [9](09-exchange-ve-dsp.md)), deal'ler.
 - Mekanizma: **first-price** (sektör standardı); dinamik **floor** (ad unit × ülke × cihaz × saat bazlı, ML ile optimize edilen).
 - Rekabet ayrımı (competitive exclusion): aynı sayfada rakip markaların gösterilmemesi; `adomain` ve kategori bazlı engelleme.
 - Kazanan seçildikten sonra: win notice (`nurl`), billing notice (`burl`) ve loss notice (`lurl`) gönderilir.
@@ -137,9 +138,16 @@ Hedefleme DSL örneği:
 | Native | OpenRTB Native 1.2 |
 | CTV | VAST + SSAI, IFA (`ifa_type`) |
 | Rich media | MRAID 3.0 (in-app) |
+| Üçüncü taraf etiket | Başka bir ad server'ın (ör. reklamverenin) JS / iframe etiketi; SafeFrame içinde, izinli alan adı listesiyle |
+| Özel formatlar | Masthead, pageskin, sticky / anchor, interstitial — yayıncı şablonları ile; IAB LEAN ve Better Ads Standartlarına uygun |
 
-- Kreatif onay akışı: otomatik tarama (malware, ağır kreatif, SSL) + manuel onay.
-- Kreatif CDN üzerinden; ağır kreatif sınırları (IAB LEAN).
+Kreatif akışı:
+
+1. **Yükleme:** Reklamveren, ajans ya da ad ops kreatifi panelden veya API'den yükler.
+2. **Otomatik tarama:** Zararlı kod, kötü amaçlı yönlendirme, boyut / dosya ağırlığı, SSL, üçüncü taraf etiketlerde izinsiz alan adı çağrısı.
+3. **İçerik onayı:** Kategori, rakip marka ve uygunsuz içerik kontrolü; manuel onay. Onaylanan kreatif `review_status = approved` olur.
+4. **CDN'e yayın:** Varlıklar CDN'e alınır; ağır kreatif sınırları (IAB LEAN) uygulanır.
+5. **Güvenli gösterim:** Kreatif yayıncı sayfasından yalıtılmış çerçevede (SafeFrame / cross-origin iframe) render edilir. Üçüncü taraf etiketler canlıda da örneklenerek yeniden taranır.
 
 ## 2.5 Tracking ve Ölçüm
 
@@ -155,9 +163,12 @@ Hedefleme DSL örneği:
 | Katman | Yöntem |
 |--------|-------|
 | **GIVT** | IAB/ABC bot & spider listesi, veri merkezi IP listeleri, bilinen tarayıcı dışı UA |
-| **SIVT** | Davranışsal ML (tıklama zamanlaması, oturum anomalileri, cihaz parmak izi tutarsızlığı), click-injection, SDK spoofing tespiti |
-| **Pre-bid** | İstek anında filtre (ucuz kurallar + itibar skoru) |
-| **Post-impression** | Flink + batch analiz, faturadan düşme |
+| **SIVT** | Davranışsal ML (tıklama zamanlaması, oturum anomalileri, cihaz parmak izi tutarsızlığı, IP konumu ile tarayıcı saat dilimi uyuşmazlığı, aynı cihazdan aşırı istek, olağan dışı saat yoğunlukları), click-injection, SDK spoofing tespiti |
+| **Pre-bid** | İstek anında filtre (ucuz kurallar + itibar skoru); `ads.txt` / `app-ads.txt` ve `sellers.json`'da yetkili olmayan satıcıdan gelen istek reddedilir |
+| **Post-impression** | Flink + batch analiz; faturadan düşme ve iade ([10.5](10-faturalama-ve-para-akisi.md#105-sahte-trafik-iadesi)) |
+| **Yayıncı kalite puanı** | Yayıncı / site bazında IVT oranı, görünürlük, kreatif şikayetleri ve ads.txt uyumundan günlük hesaplanan puan; düşük puanlı envanter DSP'lere kısılarak ya da hiç gönderilmez, ağa katılımda eşik olarak kullanılır |
+
+Şüpheli trafik teklife girmez, rapora yansımaz ve faturadan düşülür.
 | **Marka güvenliği** | Sayfa içerik sınıflandırma, anahtar kelime / kategori blok listeleri, 3. parti doğrulama (IAS, DV) entegrasyonu |
 
 ## 2.7 Envanter Tahmini (Forecasting)
@@ -169,4 +180,27 @@ Hedefleme DSL örneği:
 ## 2.8 Raporlama Boyutları ve Metrikler
 
 - **Boyutlar:** tarih/saat, tenant, reklamveren, kampanya, line item, kreatif, ad unit, site/app, ülke/il, cihaz, OS, tarayıcı, deal, bidder, segment.
-- **Metrikler:** ad request, matched request, impression, viewable impression, click, CTR, video quartile'ları, VCR, dönüşüm, gelir (TRY/USD), eCPM, fill rate, bid rate, win rate, timeout rate, IVT oranı, tekil erişim (sketch tabanlı), ortalama frekans.
+- **Metrikler:** ad request, matched request, impression, viewable impression, click, CTR, video quartile'ları, VCR, dönüşüm, gelir (TRY/USD/EUR), eCPM, fill rate, bid rate, win rate, timeout rate, IVT oranı, tekil erişim (sketch tabanlı), ortalama frekans.
+
+## 2.9 Yayıncı Paneli ve Ağa Katılım
+
+Platform önce kendi sitelerimizde çalışır, sonra Türkiye'deki dış yayıncılara açılır (Türkiye ağı). Her yayıncı ayrı bir tenant'tır ([1.4](01-genel-mimari.md#14-çok-kiracılılık-multi-tenancy)).
+
+### Ağa katılım (onboarding)
+1. **Başvuru ve inceleme:** Şirket bilgileri, vergi numarası, banka hesabı; içerik ve trafik kalitesi incelemesi (yayıncı kalite puanı eşiği, [2.6](#26-ivt-geçersiz-trafik-ve-marka-güvenliği)).
+2. **Sözleşme:** Gelir payı / take rate ([10.4](10-faturalama-ve-para-akisi.md#104-komisyon-ve-gelir-paylaşımı)), ödeme vadesi, KVKK veri işleyen hükümleri, rıza yönetimi (CMP) yükümlülüğü.
+3. **Teknik kurulum:** Yayıncının `ads.txt` dosyasına platform satırı eklenir; yayıncı platformun `sellers.json` dosyasına yazılır; reklam etiketi veya Prebid.js yapılandırması, CMP entegrasyonu.
+4. **Doğrulama:** Test trafiği, ads.txt tarayıcısının satırı görmesi, ilk günün IVT ve görünürlük oranları. Ardından envanter Exchange'e açılır.
+
+### Panel işlevleri
+- **Envanter:** Site / uygulama ve reklam alanı (ad unit) tanımı, boyut ve formatlar, özel formatlar.
+- **Taban fiyat kuralları:** Ülke, cihaz, format ve ad unit bazında; deal bazında ayrı floor.
+- **Blok listeleri:** Rakip marka (`adomain`), hassas kategori (IAB), kreatif özellikleri; reklamveren ve DSP bazında engelleme.
+- **Doğrudan satış:** Yayıncının kendi kampanyaları ve PG / PMP deal yönetimi.
+- **Rapor ve hakediş:** Gelir, eCPM, doluluk, IVT düzeltmeleri, aylık hakediş raporu ([10.7](10-faturalama-ve-para-akisi.md#107-faturalama-ve-vergi)).
+
+### Getiri optimizasyonu (yield)
+- **Taban fiyat önerisi:** Geçmiş teklif dağılımından ad unit × ülke × cihaz × saat bazında önerilen floor (ML ile dinamik floor'un yayıncıya görünen yüzü).
+- **Doğrudan / programatik karşılaştırma:** Aynı envanterde garantili kampanyaların eCPM'i ile Exchange'in kazanan fiyatları; gölge fiyat ayarı önerileri.
+- **Doluluk takibi:** Fill rate, boş kalan gösterimler ve nedenleri (no-fill reason: floor, timeout, blok, hedefleme).
+- **Yetkili satıcı sağlığı:** ads.txt / sellers.json tutarlılık uyarıları.

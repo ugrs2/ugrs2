@@ -9,10 +9,12 @@
 | **Kimlik (Identity)** | Kimlikleri birleştirmek, `person_id` üretmek | ID Resolution Service, Identity Graph |
 | **DMP** | Profil, segment, aktivasyon | Profil Deposu, Segment Motoru, Lookalike, Aktivasyon |
 | **Ad Server** | Reklam kararı, açık artırma, teslimat | Karar Motoru, Targeting Index, Pacing, Frequency Cap, RTB |
+| **Pazar Yeri** | Gösterimi alıcılara açık artırmayla satmak, talep tarafı ürünü | Ad Exchange, DSP (bizim), harici DSP bağlantıları ([9](09-exchange-ve-dsp.md)) |
+| **Faturalama** | Tahsilat, komisyon, IVT iadesi, hakediş, mutabakat | Defter, e-fatura, ödeme ([10](10-faturalama-ve-para-akisi.md)) |
 | **Data Clean Room** | Partnerle gizlilik korumalı ortak analiz | Eşleştirme (PSI/TEE), Politika Motoru, DP, Audit |
 | **Analitik** | Raporlama, BI, model eğitimi | ClickHouse, Iceberg Lakehouse, Trino, Spark |
 | **ML Platformu** | CTR/CVR, bid shading, lookalike, IVT modelleri | Feature Store, Model Registry, gömülü model sunumu |
-| **Kontrol Düzlemi** | Kampanya yönetimi, kullanıcı/tenant yönetimi, faturalama | Admin UI, Management API, IAM, Billing |
+| **Kontrol Düzlemi** | Kampanya yönetimi, kullanıcı/tenant yönetimi | Admin UI, yayıncı paneli, reklamveren paneli, Management API, IAM |
 | **Gizlilik & Güvenlik** | Rıza, silme talepleri, şifreleme, denetim | CMP Entegrasyonu, Consent Service, DSAR Pipeline, KMS, Audit Log |
 
 ## 1.2 Detaylı Bileşen Şeması
@@ -176,7 +178,7 @@ flowchart TB
 
 ## 1.4 Çok Kiracılılık (Multi-Tenancy)
 
-- Her kayıt ve her olay `tenant_id` taşır; Kafka partition anahtarı `tenant_id + person_id` hash'idir.
+- Her kayıt ve her olay `tenant_id` taşır; Kafka partition anahtarı her zaman `tenant_id` ile başlar. Kimlik çözümlemesinden sonraki topic'lerde anahtar `tenant_id + person_id`, öncesinde (`raw.*`) `tenant_id + cihaz/harici id` hash'idir (bkz. [5.6](05-veri-modeli.md#56-kafka-topic-tasarımı)).
 - Profil deposunda anahtar `tenant_id:person_id` şeklindedir; kiracılar arası kimlik birleştirme **varsayılan olarak kapalıdır** (yalnızca clean room üzerinden, sözleşme ile).
 - Kiracı başına ayrı şifreleme anahtarı (KMS envelope encryption) — kiracı ayrıldığında anahtar imhası ile kriptografik silme (crypto-shredding).
 - Büyük kiracılar için ayrık (dedicated) Kafka topic'leri ve ClickHouse shard'ları seçeneği.

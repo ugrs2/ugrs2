@@ -11,6 +11,9 @@
 | Şema | **Protobuf + Schema Registry** | Avro | Hızlı serileştirme, Go/Java desteği |
 | Stream işleme | **Apache Flink** | Kafka Streams | Büyük keyed state, event-time, exactly-once |
 | Profil / KV | **Aerospike** | ScyllaDB, Redis Cluster | AdTech standardı, SSD üzerinde < 1 ms |
+| Bütçe / frekans sayaçları | **Aerospike** (varsayılan) | Redis Cluster | Faz 0'da karar verilir, bkz. [9.4.4](09-exchange-ve-dsp.md#944-sayaç-deposu-karar-noktası) |
+| Faturalama defteri | **PostgreSQL** (ayrı veritabanı) | — | ACID, çift taraflı defter ([10](10-faturalama-ve-para-akisi.md)) |
+| e-Fatura | **GİB özel entegratörü** | — | e-fatura / e-arşiv |
 | OLAP | **ClickHouse** | Druid, Pinot | Hız, maliyet, SQL |
 | Lakehouse | **Apache Iceberg + S3/MinIO** | Delta Lake | Açık format, time travel, şema evrimi |
 | Batch / sorgu | **Spark + Trino** | — | Identity graph, batch segment, ad-hoc |
@@ -96,7 +99,7 @@ flowchart TB
 | TLS sonlandırma + LB | 2 ms |
 | İstek parse + doğrulama + rıza kontrolü | 0.5 ms |
 | GeoIP + UA parse (bellek içi) | 0.3 ms |
-| `idmap` + `profile` okuma (Aerospike, paralel) | 2 ms |
+| `idmap` → `profile` okuma (Aerospike, sıralı: profil anahtarı `person_id`'ye bağlı) | 2 ms (2 × ~1 ms) |
 | Targeting index aday çekme | 1 ms |
 | Filtreler (fcap, pacing, brand safety) | 1 ms |
 | ML skorlama (ONNX, in-process, batch) | 2 ms |
@@ -104,7 +107,7 @@ flowchart TB
 | Yanıt serileştirme | 0.2 ms |
 | **Toplam (sunucu içi)** | **< 10 ms p50, < 30 ms p99** |
 
-Header bidding / RTB içeren isteklerde toplam süre bidder timeout'u ile belirlenir (tipik 100–300 ms); bu süre boyunca profil okuma ve aday hesaplama **paralel** yürür.
+Header bidding / RTB içeren isteklerde toplam süre bidder timeout'u ile belirlenir (Exchange `tmax` ≈ 100 ms; istekten reklamın görünmesine hedef ≤ 200 ms, bkz. [9.6](09-exchange-ve-dsp.md#96-gecikme-bütçesi)); bu süre boyunca profil okuma ve aday hesaplama bidder çağrılarıyla **paralel** yürür. `idmap` ve `profile` okumaları ise kendi aralarında sıralıdır (profil anahtarı için önce `person_id` çözülmelidir).
 
 **Performans pratikleri:**
 - Sıcak yolda bellek tahsisini (allocation) minimize et: `sync.Pool`, önceden ayrılmış buffer'lar, sıfır-kopya JSON / Protobuf.
@@ -123,6 +126,7 @@ Varsayım: ortalama 20K, tepe 60K ad request/sn; istek başına ~3 olay; olay ba
 | Kafka (3 gün, RF=3, zstd ~4×) | 7.8 × 3 × 3 / 4 | ~18 TB disk |
 | ClickHouse ham (90 gün, ~10× sıkıştırma) | 7.8 / 10 × 90 | ~70 TB (replika hariç) |
 | Profil deposu | 100M × 2 KB × RF 2 | ~400 GB SSD + ~13 GB RAM indeks |
+| `idmap` | ~300M kimlik (kişi başı ~3) × ~150 B × RF 2 | ~90 GB SSD + ~38 GB RAM indeks (kayıt başı 64 B) |
 | Ad server CPU | ~1.5 ms CPU/istek × 60K | ~90 vCPU (+%50 pay → ~135 vCPU) |
 
 > Bu tablo bir başlangıç noktasıdır; gerçek değerler yük testleriyle (k6 / Gatling, gerçek trafik replay) doğrulanmalıdır.

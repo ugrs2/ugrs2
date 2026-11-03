@@ -74,6 +74,8 @@ sequenceDiagram
     AE-->>P: Tamamlandı
     ICE-->>P: Tamamlandı
     CH-->>P: Tamamlandı
+    DCR-->>P: Tamamlandı
+    EXT-->>P: Tamamlandı (ortak onayı / API yanıtı)
     P-->>U: Yanıt (yasal süre içinde)
 ```
 

@@ -94,8 +94,8 @@ Collaboration konfigürasyonu örneği:
   "allowed_templates": ["overlap_report", "reach_frequency", "sales_lift", "audience_activation"],
   "privacy": {
     "min_aggregation_threshold": 50,
-    "differential_privacy": { "enabled": true, "epsilon_total": 10.0, "epsilon_per_query_max": 1.0, "delta": 1e-9 },
-    "max_queries_per_day": 50
+    "differential_privacy": { "enabled": true, "epsilon_total": 10.0, "epsilon_per_query_max": 0.2, "delta": 1e-9 },
+    "max_queries_per_day": 10
   },
   "outputs": {
     "reports": { "recipients": ["retailx", "publisher_42"] },
@@ -106,7 +106,8 @@ Collaboration konfigürasyonu örneği:
 
 ### Kontroller
 - **Kolon rolleri:** `join` (yalnızca eşleştirmede), `dimension` (gruplamada), `aggregate_only` (yalnızca SUM/AVG/COUNT içinde). `SELECT *` ve satır döndüren sorgular derleme aşamasında reddedilir.
-- **Eşik:** Sonuç tablosundaki her hücre için `COUNT(DISTINCT match_id) ≥ k`; altındakiler bastırılır.
+- **Eşik:** Sonuç tablosundaki her hücre için **gürültü eklenmiş** `COUNT(DISTINCT match_id) ≥ k`; altındakiler bastırılır. Eşik gerçek sayıya uygulanırsa bir hücrenin görünüp görünmemesi tek bir kişinin varlığını sızdırabilir ve DP garantisini deler.
+- **Bütçe ile limitlerin uyumu:** `epsilon_total / epsilon_per_query_max` collaboration boyunca çalışabilecek en az sorgu sayısını verir (örnekte 10 / 0.2 = 50). `max_queries_per_day` bu değerle birlikte ayarlanmalıdır; aksi halde günlük limit hiç devreye girmez ya da bütçe ilk gün tükenir.
 - **Fark saldırısı (differencing attack) koruması:** Birbirine çok benzeyen filtrelerle art arda sorgu tespiti; DP gürültüsü ve bütçe bu riski matematiksel olarak sınırlar.
 - **DP bütçesi:** Her sorgu epsilon tüketir; collaboration bütçesi bittiğinde yeni sorgu çalışmaz.
 
@@ -143,11 +144,12 @@ FROM (
     SELECT match_id, 'holdout' AS grp FROM holdout
 ) g
 LEFT JOIN sales s USING (match_id)
-GROUP BY grp
-HAVING COUNT(*) >= 50;
+GROUP BY grp;
+-- Eşik (k ≥ 50) burada HAVING ile uygulanmaz: politika motoru gürültüyü ekledikten sonra
+-- eşiği gürültülü `users` değerine uygular (bkz. 4.4 Kontroller).
 ```
 
-> Politika motoru bu şablonu çalıştırmadan önce: parametre tiplerini doğrular, `revenue` değerlerini kişi başı üst sınıra (clamp) keser (DP hassasiyetini sınırlamak için), gürültüyü ekler ve epsilon bütçesinden düşer.
+> Politika motoru bu şablonu çalıştırmadan önce: parametre tiplerini doğrular, `revenue` değerlerini kişi başı üst sınıra (clamp) keser (DP hassasiyetini sınırlamak için). Çalıştırdıktan sonra gürültüyü ekler, eşiği gürültülü değerlere uygular ve epsilon bütçesinden düşer.
 
 ## 4.6 Kullanım Senaryoları
 
@@ -185,6 +187,7 @@ sequenceDiagram
 - Partner hangi kişilerin eşleştiğini **hiçbir zaman öğrenmez**; yalnızca segment ID'si ve yaklaşık büyüklüğü görür.
 - Yayıncı partnerin ham CRM verisini **hiçbir zaman görmez**; yalnızca "bu person_id'ler X segmentinde" bilgisini alır.
 - Opak segmentler dış aktivasyon kanallarına (DSP, Meta vb.) gönderilemez (`exportable=false` politika seviyesinde zorunlu).
+- **Raporlama üzerinden sızıntı koruması:** Partner, opak segmentle açtığı line item'ın teslimat raporlarını (gösterim, tıklama, dönüşüm; özellikle kendi pikselinden gelen dönüşümler) segment üyeliğini daraltmak için kullanabilir. Bu nedenle opak segment hedefleyen kampanyalarda rapor boyutları kısıtlanır (ör. kullanıcı, saat ya da küçük coğrafya kırılımı yok), hücre eşiği (k) uygulanır ve aynı opak segmentle farklı daraltıcı hedeflemelere sahip çok sayıda line item açılması politika motorunca sınırlanır.
 
 ## 4.8 Kendi DCR'ımız mı, Hazır Çözüm mü?
 
