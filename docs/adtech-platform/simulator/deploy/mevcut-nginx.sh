@@ -42,6 +42,15 @@ if [ -f "$ROOT/index.html" ]; then
 fi
 install -m 644 "$tmp" "$ROOT/index.html"
 
+# 3B ağ görünümü: 2B sayfadaki "3B ağ görünümü" bağlantısı /3d.html'i açar. İnmezse kurulum yine tamamlanır.
+if curl -fsSL "${RAW%simulator.html}3d.html" -o "$tmp"; then
+  sed -i "s#name=\"sim-docs-base\" content=\"../../\"#name=\"sim-docs-base\" content=\"$DOCS\"#; s#name=\"sim-2d-href\" content=\"simulator.html\"#name=\"sim-2d-href\" content=\"./\"#" "$tmp"
+  install -m 644 "$tmp" "$ROOT/3d.html"
+  echo "▸ 3B görünüm: $ROOT/3d.html"
+else
+  echo "▸ Uyarı: 3d.html indirilemedi; yalnızca 2B simülatör kuruldu." >&2
+fi
+
 echo "▸ nginx ayarı kontrol ediliyor ve yeniden yükleniyor…"
 nginx -t
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet nginx; then

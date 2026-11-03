@@ -275,7 +275,7 @@ window.SIM = window.SIM || {};
         why: 'Kampanya ekranları, gelir ve doluluk raporları ile “neden bu reklam” analizleri saniyeler içinde yanıtlanır.',
         tech: 'ReplicatedMergeTree, AggregatingMergeTree + materialized view, uniqCombined64 ile tekil erişim',
         latency: 'Olay → rapor tazeliği < 5 dk (SLO)',
-        scale: 'Ham olaylar 90 gün (~70 TB), saatlik agrega 13 ay',
+        scale: 'Ham olaylar 90 gün (~70 TB), saatlik agrega 25 ay',
         docs: '05-veri-modeli.md'
       }
     },

@@ -62,3 +62,9 @@ mkdirSync(OUT_DIR, { recursive: true });
 writeFileSync(OUT, html);
 const kb = (Buffer.byteLength(html) / 1024).toFixed(0);
 console.log(`dist/simulator.html yazıldı (${kb} KB) · CSS: ${inlined.css.join(', ')} · JS: ${inlined.js.join(', ')}`);
+
+// 3) 3B görünüm zaten tek dosya (three.js CDN'den); dist/ içindeki konuma göre bağlantıları ayarlayıp kopyala.
+//    Dokümanlar dist/'ten iki üst klasörde, 2B sürüm yanında simulator.html adıyla durur.
+const html3d = read('3d.html').replace(/<head>/i, '<head>\n  <meta name="sim-docs-base" content="../../">\n  <meta name="sim-2d-href" content="simulator.html">');
+writeFileSync(join(OUT_DIR, '3d.html'), html3d);
+console.log(`dist/3d.html yazıldı (${(Buffer.byteLength(html3d) / 1024).toFixed(0)} KB)`);

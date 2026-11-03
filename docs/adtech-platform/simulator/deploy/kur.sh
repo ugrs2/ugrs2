@@ -27,7 +27,7 @@ fi
 if [ -n "${DOMAIN:-}" ]; then
   echo "▸ HTTPS kurulumu: $DOMAIN"
   compose="env DOMAIN=$DOMAIN docker compose -f docker-compose.https.yml"
-  $compose up -d --build
+  $compose up -d --build --remove-orphans
   ports="80 443"
   health="http://127.0.0.1:80/"   # Caddy HTTP'yi HTTPS'e yönlendirir; yanıt gelmesi yeterli
   url="https://$DOMAIN/"
@@ -35,7 +35,7 @@ else
   PORT="${PORT:-80}"
   echo "▸ HTTP kurulumu: port $PORT"
   compose="docker compose"
-  PORT="$PORT" $compose up -d --build
+  PORT="$PORT" $compose up -d --build --remove-orphans   # HTTPS stack'ten geçişte kalan Caddy 80. portu tutmasın
   ports="$PORT"
   health="http://127.0.0.1:$PORT/saglik"
   url_port=""

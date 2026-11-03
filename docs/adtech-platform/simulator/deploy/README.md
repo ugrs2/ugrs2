@@ -99,7 +99,8 @@ Repodaki `dist/simulator.html` tek dosyalık, hazır sürümdür; Node.js gerekm
 sudo apt-get install -y nginx
 cd ugrs2/docs/adtech-platform/simulator
 sudo cp dist/simulator.html /var/www/html/index.html
-sudo systemctl reload nginx                              # http://SUNUCU_IP/
+sudo cp dist/3d.html /var/www/html/3d.html              # 3B ağ görünümü (three.js CDN'den yüklenir)
+sudo systemctl reload nginx                              # http://SUNUCU_IP/  ·  http://SUNUCU_IP/3d.html
 ```
 Kaynak dosyaları değiştirdiyseniz önce `node tools/bundle.mjs` ile (Node.js 18+) bu dosyayı yeniden üretin. Bu yolda İstasyon sekmesindeki "Doküman" bağlantıları açılmaz; gerekirse `docs/adtech-platform/*.md` dosyalarını sunucuda uygun yere kopyalayın.
 

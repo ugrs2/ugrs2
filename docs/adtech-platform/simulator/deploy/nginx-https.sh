@@ -75,7 +75,8 @@ CONFLICTS="$(printf '%s\n' "$NGINX_T" | awk -v d="$DOMAIN" -v own="$CONF_ENABLED
 
 # DNS ön kontrolü: sertifika alınabilmesi için alan adı bu sunucuyu göstermeli
 if [ "${DNS_KONTROL:-1}" != "0" ]; then
-  RESOLVED="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk 'NR==1{print $1}')"
+  # getent çözemezse 2 ile çıkar; "|| true" olmadan pipefail betiği sessizce durdurur
+  RESOLVED="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk 'NR==1{print $1}' || true)"
   MYIP="$(curl -4 -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
   [ -n "$RESOLVED" ] || fail "$DOMAIN için DNS A kaydı bulunamadı. Kaydı bu sunucunun IP'sine (${MYIP:-?}) yönlendirip tekrar deneyin."
   if [ -n "$MYIP" ] && [ "$RESOLVED" != "$MYIP" ]; then
@@ -106,6 +107,15 @@ grep -q 'Reklam Altyapısı Simülatörü' "$tmp" || fail "İndirilen dosya bekl
 sed -i "0,/<head>/s##<head><meta name=\"sim-docs-base\" content=\"$DOCS\">#" "$tmp"
 install -m 644 "$tmp" "$WEBROOT/index.html"
 say "Sayfa: $WEBROOT/index.html"
+
+# 3B ağ görünümü: 2B sayfadaki "3B ağ görünümü" bağlantısı /3d.html'i açar. İnmezse kurulum yine tamamlanır.
+if curl -fsSL "${RAW%simulator.html}3d.html" -o "$tmp"; then
+  sed -i "s#name=\"sim-docs-base\" content=\"../../\"#name=\"sim-docs-base\" content=\"$DOCS\"#; s#name=\"sim-2d-href\" content=\"simulator.html\"#name=\"sim-2d-href\" content=\"./\"#" "$tmp"
+  install -m 644 "$tmp" "$WEBROOT/3d.html"
+  say "3B görünüm: $WEBROOT/3d.html"
+else
+  echo "▸ Uyarı: 3d.html indirilemedi; yalnızca 2B simülatör kuruldu." >&2
+fi
 
 # ---------------------------------------------------------------- nginx ayarı (geri alınabilir)
 PREV=""
@@ -156,6 +166,7 @@ $ssl_opts
     root $WEBROOT;
     index index.html;
     charset utf-8;
+    server_tokens off;
     gzip on;
     gzip_min_length 1024;
     gzip_types text/css application/javascript image/svg+xml text/plain;
