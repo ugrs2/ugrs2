@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta name="sim-docs-base" content="../../">
+  <meta name="sim-2d-href" content="simulator.html">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Reklam Altyapısı · 3B Ağ</title>
+  <meta name="description" content="Reklam platformunun ana yapıları (Ad Server/SSP, Ad Exchange/RTB, DSP, DMP, Kafka, ClickHouse, Iceberg, faturalama, Clean Room) üç boyutlu bir sinir ağı gibi: verinin dolaşımı ve beklediği kayıt yerleri canlı simülasyonda.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#070b12">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%23070b12'/%3E%3Cg stroke='%232fd0f0' stroke-width='1.6' opacity='.8'%3E%3Cpath d='M7 9 16 16 25 8M7 23 16 16 25 24M7 9 7 23M25 8 25 24'/%3E%3C/g%3E%3Ccircle cx='16' cy='16' r='4' fill='%233d8bff'/%3E%3Ccircle cx='7' cy='9' r='2.4' fill='%23a774ff'/%3E%3Ccircle cx='7' cy='23' r='2.4' fill='%231fd1b0'/%3E%3Ccircle cx='25' cy='8' r='2.4' fill='%23ff9a3d'/%3E%3Ccircle cx='25' cy='24' r='2.4' fill='%23f7c948'/%3E%3C/svg%3E">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap">
+
+  <style>
+    /* 3d.html — üç boyutlu ağ görünümü. Tek dosya: stil, işaretleme ve modül betiği burada.
+     * Fikir: platform bir sinir ağı; servisler nöron, bağlantılar akson, veri paketleri sinyal.
+     * Kayıt yerleri (Kafka, ClickHouse tamponu, Iceberg, defter) cam silindirlerdir; bekleyen veri içlerinde birikir. */
+    :root {
+      --bg: #070b12; --bg-2: #0c121c;
+      --surface: rgba(13, 19, 29, 0.84); --surface-2: rgba(24, 33, 47, 0.9); --surface-3: #223047;
+      --ink: #e9eef5; --ink-2: #c7d0dc; --muted: #8e9cb0; --rule: rgba(255, 255, 255, 0.09); --rule-strong: rgba(255, 255, 255, 0.18);
+      --focus: #8ab8ff;
+      --g-kaynak: #d7e0ea; --g-edge: #8aa0bb; --g-arz: #3d8bff; --g-pazar: #2fd0f0; --g-talep: #ff9a3d;
+      --g-dmp: #a774ff; --g-veri: #1fd1b0; --g-finans: #f7c948; --g-cleanroom: #ff5d6c;
+      --ok: #45d483; --warn: #f7c948; --bad: #ff6b6b;
+      --font-display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+      --font-body: "IBM Plex Sans", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+      --radius: 10px; --panel-w: 340px; --top-h: 56px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--font-body); overflow: hidden; }
+    button, input, select { font: inherit; color: inherit; }
+    a { color: var(--focus); }
+    :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+    #app { position: fixed; inset: 0; }
+    /* sahne panelin solunda kalır; telefonda --panel-w = 0 */
+    #stage { position: absolute; inset: 0 var(--panel-w) 0 0; background: radial-gradient(120% 90% at 40% 35%, #101a2a 0%, var(--bg) 62%); }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+    /* CSS2DRenderer etiketlere derinliğe göre z-index verir; z-index: 1 onları kendi katmanında tutar (yardım/kart üstte kalır) */
+    #labels { position: absolute; inset: 0 var(--panel-w) 0 0; pointer-events: none; z-index: 1; }
+
+    /* --- üst bant --- */
+    .top { position: absolute; top: 0; left: 0; right: var(--panel-w); height: var(--top-h); display: flex; align-items: center; gap: 12px; padding: 0 16px; z-index: 3;
+      background: linear-gradient(180deg, rgba(7, 11, 18, 0.92), rgba(7, 11, 18, 0)); pointer-events: none; }
+    .top > * { pointer-events: auto; }
+    .brand { display: flex; flex-direction: column; min-width: 0; }
+    .brand h1 { margin: 0; font: 700 22px/1 var(--font-display); letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap; }
+    .brand p { margin: 2px 0 0; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top .spacer { flex: 1; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--rule-strong);
+      background: var(--surface-2); color: var(--ink); cursor: pointer; text-decoration: none; font-weight: 500; font-size: 13px; white-space: nowrap; }
+    .btn:hover { background: var(--surface-3); }
+    .btn[aria-pressed="true"] { background: #1d3a66; border-color: #3d8bff; }
+    .btn-primary { background: #2a6fd6; border-color: #3d8bff; }
+    .btn-primary:hover { background: #3a80e8; }
+    .btn svg { width: 16px; height: 16px; flex: none; }
+
+    /* --- yan panel --- */
+    .panel { position: absolute; top: 0; right: 0; bottom: 0; width: var(--panel-w); z-index: 4; display: flex; flex-direction: column;
+      background: var(--surface); border-left: 1px solid var(--rule); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+    .sheet-handle { display: none; }
+    .panel-scroll { overflow-y: auto; padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 18px; }
+    .panel h2 { margin: 0 0 8px; font: 600 14px/1 var(--font-display); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .field { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; align-items: center; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+    .field input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: #3d8bff; }
+    .field output { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+    .seg { display: inline-flex; border: 1px solid var(--rule-strong); border-radius: 8px; overflow: hidden; }
+    .seg button { border: 0; background: transparent; padding: 6px 9px; min-height: 32px; cursor: pointer; font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+    .seg button[aria-pressed="true"] { background: #1d3a66; color: var(--ink); }
+    .toggles { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+    .toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); cursor: pointer; }
+    .toggle input { accent-color: #3d8bff; width: 16px; height: 16px; }
+    .scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .scenarios .btn { justify-content: flex-start; white-space: normal; text-align: left; min-height: 40px; line-height: 1.2; padding: 6px 10px; }
+    .scenarios .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+
+    .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .stat { background: var(--surface-2); border: 1px solid var(--rule); border-radius: 8px; padding: 8px 10px; }
+    .stat b { display: block; font: 600 20px/1.1 var(--font-mono); font-variant-numeric: tabular-nums; }
+    .stat span { color: var(--muted); font-size: 11px; }
+    .note { color: var(--muted); font-size: 11px; margin: 8px 0 0; }
+
+    .queues { display: flex; flex-direction: column; gap: 8px; }
+    .q { display: grid; grid-template-columns: 1fr auto; gap: 4px 8px; font-size: 12px; }
+    .q .qn { color: var(--ink-2); }
+    .q .qv { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+    .q .bar { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+    .q .bar i { display: block; height: 100%; width: 0; border-radius: 3px; transition: width 0.25s linear; }
+    .q small { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+
+    .log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; font-size: 12px; }
+    .log li { display: grid; grid-template-columns: 46px 1fr; gap: 6px; padding: 4px 6px; border-radius: 6px; background: rgba(255, 255, 255, 0.03); color: var(--ink-2); }
+    .log li time { font-family: var(--font-mono); color: var(--muted); font-size: 11px; }
+    .log li.tr { background: rgba(61, 139, 255, 0.13); color: var(--ink); }
+    .log li.bad { background: rgba(255, 107, 107, 0.12); }
+    .log li.money { background: rgba(247, 201, 72, 0.1); }
+
+    .legend { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; font-size: 12px; color: var(--ink-2); }
+    .legend span { display: flex; align-items: center; gap: 6px; }
+    .legend i { width: 14px; height: 3px; border-radius: 2px; flex: none; }
+    .legend .shape { width: 10px; height: 10px; border-radius: 50%; border: 2px solid var(--ink-2); background: transparent; }
+    .legend .shape.store { border-radius: 2px; height: 12px; width: 9px; }
+
+    /* --- 3B etiketler --- */
+    .nl { padding: 3px 7px; border-radius: 6px; background: rgba(7, 11, 18, 0.72); border: 1px solid var(--rule); white-space: nowrap; font-size: 12px; line-height: 1.2;
+      color: var(--ink); transform: translateY(-4px); transition: opacity 0.2s; }
+    .nl b { font-weight: 600; }
+    .nl .qc { margin-left: 6px; font-family: var(--font-mono); font-size: 11px; color: var(--warn); }
+    .nl::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--c); vertical-align: 1px; }
+    .nl.dim { opacity: 0.35; }
+    .col { font: 600 13px/1 var(--font-display); letter-spacing: 0.18em; text-transform: uppercase; color: rgba(233, 238, 245, 0.38); white-space: nowrap; }
+    body.no-labels .nl:not(.sel), body.no-labels .col { display: none; }
+
+    /* --- bilgi kartı --- */
+    .info { position: absolute; left: 16px; bottom: 16px; width: min(380px, calc(100% - var(--panel-w) - 32px)); z-index: 5; background: var(--surface); border: 1px solid var(--rule-strong);
+      border-radius: var(--radius); padding: 14px 16px; backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45); }
+    .info[hidden], .help[hidden], .fallback[hidden] { display: none; }
+    .info .eyebrow { font: 600 12px/1 var(--font-display); letter-spacing: 0.12em; text-transform: uppercase; color: var(--c); }
+    .info h3 { margin: 4px 0 6px; font: 700 22px/1.1 var(--font-display); }
+    .info p { margin: 0 0 8px; color: var(--ink-2); }
+    .info .wait { border-left: 3px solid var(--warn); padding: 4px 0 4px 10px; margin: 8px 0; color: var(--ink); background: rgba(247, 201, 72, 0.06); }
+    .info .meta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+    .info .close { position: absolute; top: 8px; right: 8px; min-height: 30px; padding: 0 8px; }
+    .info { max-height: min(72vh, 680px); overflow-y: auto; }
+    .info h4 { margin: 14px 0 6px; font: 600 12px/1 var(--font-display); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+    .info .back { display: inline-flex; gap: 4px; margin: 0 0 6px; padding: 0; border: 0; background: none; color: var(--focus); font-size: 12px; cursor: pointer; }
+    .info .back[hidden], .info [hidden] { display: none; }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip { display: inline-flex; flex-direction: column; padding: 4px 9px; border-radius: 8px; border: 1px solid var(--rule-strong); background: var(--surface-2); font-size: 12px; line-height: 1.25; }
+    .chip b { font-weight: 600; color: var(--ink); }
+    .chip span { color: var(--muted); font-size: 11px; }
+    .parts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+    .parts button { width: 100%; display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; padding: 6px 8px; border: 1px solid var(--rule); border-radius: 7px;
+      background: rgba(255, 255, 255, 0.03); color: var(--ink); text-align: left; cursor: pointer; }
+    .parts button:hover { background: var(--surface-3); }
+    .parts .pn { grid-row: span 2; font-family: var(--font-mono); font-size: 12px; color: var(--c); padding-top: 1px; }
+    .parts .pt { font-weight: 600; font-size: 13px; }
+    .parts .pd { color: var(--muted); font-size: 12px; }
+    .parts.set .pn::before { content: "◇"; }
+    .parts.set .pn { font-size: 0; } .parts.set .pn::before { font-size: 12px; }
+    .flow-hint { color: var(--muted); font-size: 11px; margin: 4px 0 0; }
+    /* iç yapı etiketleri */
+    .pl { padding: 2px 6px; border-radius: 5px; background: rgba(7, 11, 18, 0.82); border: 1px solid var(--c); color: var(--ink); font-size: 11px; white-space: nowrap; }
+    .pl i { font-style: normal; font-family: var(--font-mono); color: var(--c); margin-right: 4px; }
+    body.no-labels .pl { display: inline-block; }
+
+    .help { position: absolute; inset: 0; z-index: 8; display: grid; place-items: center; background: rgba(4, 7, 12, 0.6); padding: 16px; }
+    .help .card { max-width: 520px; background: var(--bg-2); border: 1px solid var(--rule-strong); border-radius: var(--radius); padding: 20px 22px; }
+    .help h2 { margin: 0 0 10px; font: 700 26px/1.1 var(--font-display); text-transform: uppercase; }
+    .help ul { margin: 0 0 14px; padding-left: 18px; color: var(--ink-2); }
+    .help li { margin: 4px 0; }
+    .help kbd { font-family: var(--font-mono); font-size: 12px; padding: 1px 5px; border: 1px solid var(--rule-strong); border-radius: 4px; }
+
+    .fallback { position: absolute; inset: 0; z-index: 9; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--bg); }
+    .fallback p { max-width: 460px; color: var(--ink-2); }
+
+    /* --- telefon: panel alttan açılan tabaka --- */
+    @media (max-width: 760px) {
+      :root { --panel-w: 0px; --top-h: 52px; }
+      .top { right: 0; padding: 0 12px; }
+      .brand h1 { font-size: 18px; }
+      .brand p { display: none; }
+      .top .btn-label { display: none; }
+      .panel { top: auto; left: 0; width: auto; max-height: 62vh; border-left: 0; border-top: 1px solid var(--rule-strong); border-radius: 14px 14px 0 0;
+        transform: translateY(calc(100% - 64px - env(safe-area-inset-bottom))); transition: transform 0.3s ease; }
+      .panel.open { transform: none; }
+      .sheet-handle { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-height: 64px; padding: 10px 16px; border: 0; background: transparent; cursor: pointer; flex: none; }
+      .sheet-handle .grip { position: absolute; top: 6px; left: 50%; width: 36px; height: 4px; margin-left: -18px; border-radius: 2px; background: var(--rule-strong); }
+      .sheet-handle .mini { display: flex; gap: 14px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+      .sheet-handle .mini b { color: var(--ink); }
+      .panel-scroll { padding-top: 0; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+      .info { left: 12px; right: 12px; width: auto; bottom: calc(76px + env(safe-area-inset-bottom)); max-height: 46vh; overflow-y: auto; }
+      .nl { font-size: 11px; padding: 2px 5px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .panel, .q .bar i, .nl { transition: none; }
+    }
+  </style>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <div id="stage" aria-label="Platformun üç boyutlu ağ görünümü. Sürükleyerek döndürün, tekerlek veya iki parmakla yakınlaştırın, bir düğüme tıklayarak ayrıntısını görün." role="img"></div>
+    <div id="labels"></div>
+
+    <header class="top">
+      <div class="brand">
+        <h1>Reklam Altyapısı · 3B Ağ</h1>
+        <p>Veri, platformun sinir ağında nasıl dolaşır ve nerede bekler?</p>
+      </div>
+      <div class="spacer"></div>
+      <a class="btn" id="link2d" href="index.html" title="Metro haritası görünümüne dön">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 12h7M14 12h7M12 3v7M12 14v7"/><circle cx="12" cy="12" r="2.5"/></svg>
+        <span class="btn-label">2B simülatör</span>
+      </a>
+      <button class="btn" id="helpBtn" type="button" aria-haspopup="dialog">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01"/></svg>
+        <span class="btn-label">Nasıl kullanılır</span>
+      </button>
+    </header>
+
+    <aside class="panel" id="panel" aria-label="Simülasyon kontrolleri">
+      <button class="sheet-handle" id="sheetHandle" type="button" aria-expanded="false" aria-controls="panelScroll">
+        <span class="grip" aria-hidden="true"></span>
+        <span class="mini"><span>İstek <b id="miniReq">0</b></span><span>Kafka <b id="miniKafka">0</b></span><span>Gelir <b id="miniRev">0 ₺</b></span></span>
+        <span class="btn">Kontroller</span>
+      </button>
+      <div class="panel-scroll" id="panelScroll">
+        <section>
+          <h2>Oynatma</h2>
+          <div class="row">
+            <button class="btn btn-primary" id="playBtn" type="button" aria-pressed="false">Duraklat</button>
+            <div class="seg" role="group" aria-label="Hız" id="speedSeg">
+              <button type="button" data-speed="0.25">¼×</button>
+              <button type="button" data-speed="0.5">½×</button>
+              <button type="button" data-speed="1" aria-pressed="true">1×</button>
+              <button type="button" data-speed="2">2×</button>
+            </div>
+            <button class="btn" id="resetBtn" type="button">Sıfırla</button>
+          </div>
+          <label class="field">Arka plan trafiği <output id="rateOut">0,8 istek/sn</output>
+            <input type="range" id="rate" min="0" max="4" step="0.1" value="0.8">
+          </label>
+          <div class="toggles">
+            <label class="toggle"><input type="checkbox" id="tLabels" checked> Etiketler</label>
+            <label class="toggle"><input type="checkbox" id="tBloom" checked> Parıltı efekti</label>
+            <label class="toggle"><input type="checkbox" id="tRotate" checked> Otomatik dönüş</label>
+            <label class="toggle"><input type="checkbox" id="tFocus" checked> İzlenen akışa odaklan</label>
+            <label class="toggle"><input type="checkbox" id="tParts"> Tüm iç yapıları aç</label>
+          </div>
+        </section>
+
+        <section>
+          <h2>Senaryolar</h2>
+          <div class="scenarios">
+            <button class="btn" type="button" data-scn="ad"><span class="dot" style="background:var(--g-arz)"></span>Reklam isteğini izle</button>
+            <button class="btn" type="button" data-scn="event"><span class="dot" style="background:var(--g-dmp)"></span>Ziyaretçi olayını izle</button>
+            <button class="btn" type="button" data-scn="hour"><span class="dot" style="background:var(--g-finans)"></span>Saat kapanışı (fatura)</button>
+            <button class="btn" type="button" data-scn="dcr"><span class="dot" style="background:var(--g-cleanroom)"></span>Clean room işi</button>
+          </div>
+          <p class="note">İzlenen akışın paketleri büyük ve beyaz halkalı görünür; adımları akış günlüğüne yazılır.</p>
+        </section>
+
+        <section>
+          <h2>Canlı sayaçlar</h2>
+          <div class="stats">
+            <div class="stat"><b id="sReq">0</b><span>reklam isteği</span></div>
+            <div class="stat"><b id="sCpm">—</b><span>ort. kazanan CPM</span></div>
+            <div class="stat"><b id="sTimeout">0</b><span>DSP süre aşımı</span></div>
+            <div class="stat"><b id="sIvt">0</b><span>sahte trafik engeli</span></div>
+            <div class="stat"><b id="sRev">0 ₺</b><span>deftere işlenen gelir</span></div>
+            <div class="stat"><b id="sTake">0 ₺</b><span>platform payı (%15)</span></div>
+          </div>
+          <p class="note">Her reklam isteği 1.000 gösterimi temsil eder; tutarlar örnektir.</p>
+        </section>
+
+        <section>
+          <h2>Bekleyen veri</h2>
+          <div class="queues" id="queues"></div>
+        </section>
+
+        <section>
+          <h2>Akış günlüğü</h2>
+          <ol class="log" id="log" aria-live="polite"></ol>
+        </section>
+
+        <section>
+          <h2>Lejant</h2>
+          <div class="legend" id="legend"></div>
+        </section>
+      </div>
+    </aside>
+
+    <div class="info" id="info" role="dialog" aria-labelledby="infoTitle" hidden>
+      <button class="btn close" id="infoClose" type="button" aria-label="Kapat">✕</button>
+      <button class="back" id="infoBack" type="button" hidden>← <span id="infoBackLabel"></span></button>
+      <div class="eyebrow" id="infoGroup"></div>
+      <h3 id="infoTitle"></h3>
+      <p id="infoDesc"></p>
+      <div class="wait" id="infoWait" hidden></div>
+      <div id="infoTechWrap"><h4>Teknolojiler</h4><div class="chips" id="infoTech"></div></div>
+      <div id="infoPartsWrap"><h4 id="infoPartsTitle">İç yapı</h4><ol class="parts" id="infoParts"></ol><p class="flow-hint" id="infoPartsHint"></p></div>
+      <div class="meta"><span id="infoLive"></span><a id="infoDoc" href="#" target="_blank" rel="noopener">Doküman →</a></div>
+    </div>
+
+    <div class="help" id="help" role="dialog" aria-labelledby="helpTitle" hidden>
+      <div class="card">
+        <h2 id="helpTitle">Nasıl okunur?</h2>
+        <ul>
+          <li><b>Küreler</b> servisler, <b>çokyüzlüler</b> sayfa ve paneller, <b>cam silindirler</b> verinin beklediği kayıt yerleridir.</li>
+          <li>Bağlantılar üzerinde akan ışıklar veri paketleridir; bir düğüme ulaşınca düğüm "ateşlenir".</li>
+          <li>Silindirlerin içindeki noktalar kuyrukta <b>bekleyen</b> kayıtlardır: Kafka tüketiciyi, ClickHouse toplu yazımı, Iceberg commit'i, defter saat kapanışını bekler.</li>
+          <li>Sürükleyerek döndürün, tekerlek veya iki parmakla yakınlaştırın; bir düğüme tıklayınca ne yaptığı ve orada ne beklediği açılır.</li>
+          <li>Kısayollar: <kbd>Boşluk</kbd> duraklat, <kbd>1</kbd>–<kbd>4</kbd> senaryolar, <kbd>L</kbd> etiketler, <kbd>Esc</kbd> kartı kapat.</li>
+        </ul>
+        <button class="btn btn-primary" id="helpClose" type="button">Başla</button>
+      </div>
+    </div>
+
+    <div class="fallback" id="fallback" hidden>
+      <div>
+        <h2 style="font:700 26px var(--font-display);text-transform:uppercase;margin:0 0 8px">3B görünüm açılamadı</h2>
+        <p id="fallbackMsg"></p>
+        <p><a class="btn" id="fallback2d" href="index.html">2B simülatöre git</a></p>
+      </div>
+    </div>
+  </div>
+  <noscript><p style="padding:16px;margin:0;font-family:sans-serif;color:#fff">Bu görünüm JavaScript gerektirir.</p></noscript>
+
+  <script type="module">
+    // ------------------------------------------------------------------
+    // 0. Kurulum: kütüphaneler, ayarlar
+    // ------------------------------------------------------------------
+    const $ = (id) => document.getElementById(id);
+    const meta = (n) => document.querySelector(`meta[name="${n}"]`)?.content;
+    const DOCS = meta('sim-docs-base') ?? '../';
+    const HREF2D = meta('sim-2d-href') ?? 'index.html';
+    $('link2d').href = HREF2D; $('fallback2d').href = HREF2D;
+
+    function fail(msg) { $('fallbackMsg').textContent = msg; $('fallback').hidden = false; }
+
+    let THREE, OrbitControls, CSS2DRenderer, CSS2DObject, EffectComposer, RenderPass, UnrealBloomPass, OutputPass;
+    try {
+      THREE = await import('three');
+      ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+      ({ CSS2DRenderer, CSS2DObject } = await import('three/addons/renderers/CSS2DRenderer.js'));
+      ({ EffectComposer } = await import('three/addons/postprocessing/EffectComposer.js'));
+      ({ RenderPass } = await import('three/addons/postprocessing/RenderPass.js'));
+      ({ UnrealBloomPass } = await import('three/addons/postprocessing/UnrealBloomPass.js'));
+      ({ OutputPass } = await import('three/addons/postprocessing/OutputPass.js'));
+    } catch (e) {
+      fail('3B kütüphanesi (three.js) yüklenemedi. Bu görünüm internet bağlantısı gerektirir.');
+      throw e;
+    }
+
+    const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const fmt = new Intl.NumberFormat('tr-TR');
+    const fmt1 = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    const money = (v) => new Intl.NumberFormat('tr-TR', { maximumFractionDigits: v >= 100 ? 0 : 1 }).format(v) + ' ₺';
+    const rand = (a, b) => a + Math.random() * (b - a);
+    const pick = (arr) => arr[(Math.random() * arr.length) | 0];
+    const hash01 = (s) => { let h = 2166136261; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); } return ((h >>> 0) % 1000) / 1000; };
+
+    // ------------------------------------------------------------------
+    // 1. Model: gruplar, düğümler, bağlantılar
+    // ------------------------------------------------------------------
+    const GROUPS = {
+      kaynak:    { c: '#d7e0ea', name: 'Kaynak' },
+      edge:      { c: '#8aa0bb', name: 'Edge' },
+      arz:       { c: '#3d8bff', name: 'Arz · SSP / Ad Server' },
+      pazar:     { c: '#2fd0f0', name: 'Pazar yeri · RTB' },
+      talep:     { c: '#ff9a3d', name: 'Talep · DSP' },
+      dmp:       { c: '#a774ff', name: 'DMP' },
+      veri:      { c: '#1fd1b0', name: 'Veri omurgası' },
+      finans:    { c: '#f7c948', name: 'Faturalama' },
+      cleanroom: { c: '#ff5d6c', name: 'Clean Room' }
+    };
+    const LINES = {
+      ad:        { c: '#3d8bff', name: 'Reklam isteği / yanıt' },
+      market:    { c: '#2fd0f0', name: 'RTB teklifleri' },
+      dmp:       { c: '#a774ff', name: 'Kimlik ve profil' },
+      measure:   { c: '#1fd1b0', name: 'Ölçüm olayları' },
+      veri:      { c: '#5f86b0', name: 'Olay akışı (Kafka)' },
+      billing:   { c: '#f7c948', name: 'Para akışı' },
+      cleanroom: { c: '#ff5d6c', name: 'Clean room' }
+    };
+    const PACKET = {
+      req: '#a9cbff', read: '#cfb0ff', bid: '#ffb877', win: '#7dffb2', ad: '#7dffb2', beacon: '#62f3d8',
+      event: '#62f3d8', log: '#8fb3d9', seg: '#cfb0ff', money: '#ffd866', report: '#62f3d8', reject: '#ff6b6b', dcr: '#ff8a95'
+    };
+
+    // kind: actor (sayfa, panel) | service (işleyen) | queue (bekleyen kayıt yeri) | kv (anahtar-değer deposu)
+    const NODES = [
+      { id: 'web',       label: 'Web sitesi',            g: 'kaynak', kind: 'actor',   p: [-42, 11, 0],
+        desc: 'Yayıncının sayfası. collect.js ziyaretçi olaylarını, reklam etiketi (Prebid.js) reklam isteğini gönderir; CMP rıza dizesini üretir.', doc: '03-dmp.md#32-veri-toplama' },
+      { id: 'mobil',     label: 'Mobil uygulama',        g: 'kaynak', kind: 'actor',   p: [-43, 2, 6],
+        desc: 'iOS / Android SDK: olaylar ve reklam istekleri; ATT izni varsa IDFA, yoksa IDFV + 1P kimlik.', doc: '03-dmp.md#mobil-sdk' },
+      { id: 'ctv',       label: 'CTV / video',           g: 'kaynak', kind: 'actor',   p: [-41, -7, -4],
+        desc: 'Video oynatıcı: VAST 4.x reklam ister, çeyrek (quartile) izleme olaylarını gönderir.', doc: '02-ad-server.md#24-kreatif-ve-formatlar' },
+
+      { id: 'gateway',   label: 'Edge Gateway',          g: 'edge',   kind: 'service', p: [-28, 8, 0],
+        desc: 'Anycast + L7 yük dengeleyici: TLS, WAF, rate limit. Reklam isteğini doğrulayıp GeoIP ve UA bilgisiyle karar motoruna iletir.', doc: '01-genel-mimari.md#12-detaylı-bileşen-şeması' },
+      { id: 'collector', label: 'Event Collector',       g: 'edge',   kind: 'service', p: [-28, -3, 5],
+        desc: 'Durumsuz Go servisi: şemayı doğrular, hemen 204 döner ve olayı Kafka\'ya yazar. Kafka erişilemezse yerel diske tamponlar.', doc: '01-genel-mimari.md#13-ana-veri-akışları' },
+      { id: 'tracking',  label: 'Tracking',              g: 'edge',   kind: 'service', p: [-25, -12, -4],
+        desc: 'İmzalı (HMAC) gösterim, görünürlük ve tıklama beacon\'larını alır; sahte beacon ve fiyat manipülasyonunu engeller.', doc: '02-ad-server.md#25-tracking-ve-ölçüm' },
+
+      { id: 'adserver',  label: 'Ad Server · SSP',       g: 'arz',    kind: 'service', p: [-13, 8, 0], r: 1.6,
+        desc: 'Karar motoru: rıza kontrolü → idmap ve profil okuma (sıralı) → garantili adaylar → Exchange ve Prebid teklifleriyle birleşik açık artırma → kreatif yanıtı.', doc: '02-ad-server.md#23-karar-motoru-iç-yapısı' },
+      { id: 'prebid',    label: 'Prebid Server',         g: 'arz',    kind: 'service', p: [-14, 18, -6],
+        desc: 'Sunucu taraflı header bidding: birden çok alıcıyı aynı anda yarıştırır; teklifler birleşik açık artırmaya girer.', doc: '02-ad-server.md#236-programatik-entegrasyon' },
+      { id: 'pubpanel',  label: 'Yayıncı paneli',        g: 'arz',    kind: 'actor',   p: [-26, 20, 6],
+        desc: 'Envanter, taban fiyat kuralları, blok listeleri, getiri raporları ve aylık hakediş. Ayarlar config akışıyla ad server\'a dağıtılır.', doc: '02-ad-server.md#29-yayıncı-paneli-ve-ağa-katılım' },
+
+      { id: 'exchange',  label: 'Ad Exchange · RTB',     g: 'pazar',  kind: 'service', p: [3, 8, 0], r: 1.9,
+        desc: 'Ön filtre (IVT, ads.txt, rıza) → DSP seçimi (traffic shaping) → teklif isteğini paralel dağıtır → tmax ≈ 100 ms bekler → birinci fiyat açık artırma, taban fiyat 30 ₺ CPM.', doc: '09-exchange-ve-dsp.md#93-ad-exchange',
+        wait: 'Açık artırma sırasında teklifler en fazla tmax (≈ 100 ms) kadar beklenir; geç kalan DSP beklenmez. Etrafındaki halka açık açık artırma sayısını gösterir.' },
+
+      { id: 'dsp',       label: 'DSP (bizim)',           g: 'talep',  kind: 'service', p: [19, 16, 3], r: 1.5,
+        desc: 'Kendi DSP\'miz: hedefleme eşleşmesi → bütçe ve pacing → frekans sınırı → teklif stratejisi + bid shading. Exchange\'e harici DSP\'lerle aynı kurallarla bağlanır.', doc: '09-exchange-ve-dsp.md#94-kendi-dspmiz' },
+      { id: 'dspA',      label: 'Harici DSP A',          g: 'talep',  kind: 'service', p: [21, 7, -6],
+        desc: 'OpenRTB 2.6 ile bağlanan dış alıcı. Pretargeting ve QPS limiti ile kendisine uyan trafiği alır.', doc: '09-exchange-ve-dsp.md#95-openrtb-entegrasyon-sözleşmesi-harici-dspler' },
+      { id: 'dspB',      label: 'Harici DSP B',          g: 'talep',  kind: 'service', p: [20, -1, 4],
+        desc: 'Dış alıcı. Teklif oranı düşük segmentlerde Exchange ona daha az istek gönderir (öğrenen kısma).', doc: '09-exchange-ve-dsp.md#932-dsp-seçimi-traffic-shaping' },
+      { id: 'dspC',      label: 'Harici DSP C',          g: 'talep',  kind: 'service', p: [18, -9, -3],
+        desc: 'Yavaş yanıt veren dış alıcı: sık sık tmax süresini aşar ve açık artırmaya giremez.', doc: '09-exchange-ve-dsp.md#933-zaman-yönetimi' },
+      { id: 'counters',  label: 'Bütçe & frekans sayaçları', g: 'talep', kind: 'kv',   p: [32, 3, 8],
+        desc: 'DSP\'nin anlık bütçe, rezervasyon ve frekans sayaçları (Aerospike varsayılan, Redis alternatif). Teklif öncesi okunur, faturalanabilir gösterimde Flink tarafından artırılır.', doc: '09-exchange-ve-dsp.md#944-sayaç-deposu-karar-noktası' },
+      { id: 'advpanel',  label: 'Reklamveren paneli',    g: 'talep',  kind: 'actor',   p: [34, 16, -2],
+        desc: 'Self-servis: kampanya, hedef kitle, kreatif, teklif stratejisi, bütçe ve ödeme; anlık raporlar ClickHouse\'tan gelir.', doc: '09-exchange-ve-dsp.md#945-reklamveren-paneli-self-servis' },
+
+      { id: 'identity',  label: 'Kimlik çözümleme',      g: 'dmp',    kind: 'service', p: [-9, -1, 14],
+        desc: 'Cookie, MAID, hashed email, PPID gibi kimlikleri tek person_id altında birleştirir (idmap). Deterministik bağlantıda iki kişi anında birleşir.', doc: '03-dmp.md#33-kimlik-çözümleme-identity-resolution' },
+      { id: 'profile',   label: 'Profil deposu · Aerospike', g: 'dmp', kind: 'kv',     p: [-3, 4, 20], r: 1.5,
+        desc: 'tenant:person_id anahtarlı profil kaydı: segmentler, frekans kovaları, öznitelikler, rıza. Ad server isteği başına en fazla 2 okuma (idmap → profil), p99 < 1 ms.', doc: '05-veri-modeli.md#53-profil-kaydı-aerospike' },
+      { id: 'segment',   label: 'Segment motoru',        g: 'dmp',    kind: 'service', p: [8, 0, 16],
+        desc: 'Gerçek zamanlı kurallar (Flink keyed state) ve batch SQL; clean room\'dan gelen opak segmentleri de profile yazar. DSP kitleleri buradan seçilir.', doc: '03-dmp.md#35-segmentasyon' },
+
+      { id: 'kafka',     label: 'Kafka',                 g: 'veri',   kind: 'queue',   p: [-9, -13, -5], r: 2.6, cap: 60, every: 0.6, batch: 3,
+        desc: 'Tek olay omurgası: raw.*, ad.*, rtb.auctions topic\'leri. Olaylar sıralı ve kalıcı yazılır; tüketiciler (Flink) kendi hızında okur.', doc: '05-veri-modeli.md#56-kafka-topic-tasarımı',
+        wait: 'Olaylar, Flink tüketicisi okuyana kadar topic partition\'larında bekler. Bekleyen sayı = tüketici gecikmesi (consumer lag).' },
+      { id: 'flink',     label: 'Flink',                 g: 'veri',   kind: 'service', p: [4, -13, -3], r: 1.5,
+        desc: 'Akış işleme: doğrulama, rıza filtresi, bot filtresi, zenginleştirme, kimlik çözümleme; reklam olaylarında dedup, IVT işareti ve faturalama sayaçları.', doc: '01-genel-mimari.md#13-ana-veri-akışları' },
+      { id: 'clickhouse',label: 'ClickHouse',            g: 'veri',   kind: 'queue',   p: [16, -22, -7], r: 2.3, cap: 80, every: 3, batch: 40,
+        desc: 'Gerçek zamanlı raporlama: ham reklam olayları (90 gün) ve saatlik agregalar (25 ay). Paneller ve API buradan okur.', doc: '05-veri-modeli.md#55-clickhouse-raporlama-tabloları',
+        wait: 'Satırlar, toplu ekleme (batch insert) dolana kadar tamponda bekler; sonra tek seferde yazılır ve raporlarda görünür.' },
+      { id: 'iceberg',   label: 'Iceberg Lakehouse',     g: 'veri',   kind: 'queue',   p: [-2, -27, -10], r: 2.6, cap: 120, every: 7, batch: 999,
+        desc: 'Ham olay arşivi (S3 / MinIO): identity graph, batch segment, ML eğitimi ve clean room girdisi buradan okunur.', doc: '05-veri-modeli.md',
+        wait: 'Olaylar, bir sonraki commit\'e (snapshot) kadar yazım tamponunda bekler; commit sonrası batch işler ve clean room görebilir.' },
+      { id: 'ledger',    label: 'Defter · faturalama',   g: 'finans', kind: 'queue',   p: [29, -18, -4], r: 2.3, cap: 120, every: 12, batch: 999,
+        desc: 'Çift taraflı, değiştirilemez defter: harcama, komisyon (take rate), yayıncı hakedişi ve IVT iadesi.', doc: '10-faturalama-ve-para-akisi.md#102-hesap-modeli-defter',
+        wait: 'Faturalanabilir gösterimlerin tutarı saat kapanışına kadar bekler; kapanışta tek kayıt olarak deftere işlenir ve yayıncı / platform payı ayrılır.' },
+
+      { id: 'cleanroom', label: 'Data Clean Room',       g: 'cleanroom', kind: 'service', p: [-20, -21, 9], r: 1.6,
+        desc: 'Partner verisiyle ham veri paylaşmadan eşleştirme (TEE / PSI). Çıktı yalnızca eşik + DP gürültüsü uygulanmış agrega ya da dışa aktarılamayan opak segmenttir.', doc: '04-data-clean-room.md#42-mimari' }
+    ];
+
+    const EDGES = [
+      ['web', 'gateway', 'ad'], ['mobil', 'gateway', 'ad'], ['ctv', 'gateway', 'ad'],
+      ['web', 'collector', 'dmp'], ['mobil', 'collector', 'dmp'], ['ctv', 'collector', 'dmp'],
+      ['web', 'tracking', 'measure'], ['mobil', 'tracking', 'measure'], ['ctv', 'tracking', 'measure'],
+      ['gateway', 'adserver', 'ad'], ['adserver', 'prebid', 'ad'], ['adserver', 'profile', 'dmp'],
+      ['pubpanel', 'adserver', 'ad'],
+      ['adserver', 'exchange', 'market'],
+      ['exchange', 'dsp', 'market'], ['exchange', 'dspA', 'market'], ['exchange', 'dspB', 'market'], ['exchange', 'dspC', 'market'],
+      ['dsp', 'counters', 'market'], ['dsp', 'segment', 'dmp'], ['advpanel', 'dsp', 'market'],
+      ['adserver', 'kafka', 'veri'], ['collector', 'kafka', 'veri'], ['tracking', 'kafka', 'veri'], ['exchange', 'kafka', 'veri'],
+      ['kafka', 'flink', 'veri'],
+      ['flink', 'identity', 'dmp'], ['identity', 'profile', 'dmp'], ['flink', 'segment', 'dmp'], ['segment', 'profile', 'dmp'],
+      ['flink', 'clickhouse', 'measure'], ['flink', 'iceberg', 'veri'], ['flink', 'counters', 'measure'], ['flink', 'ledger', 'billing'],
+      ['clickhouse', 'pubpanel', 'measure'], ['clickhouse', 'advpanel', 'measure'],
+      ['ledger', 'pubpanel', 'billing'], ['ledger', 'advpanel', 'billing'],
+      ['iceberg', 'cleanroom', 'cleanroom'], ['cleanroom', 'segment', 'cleanroom']
+    ];
+
+    const COLUMNS = [
+      { t: 'Kaynak', p: [-42, 27, 0] }, { t: 'Edge', p: [-27, 27, 0] }, { t: 'Arz · SSP', p: [-13, 27, 0] },
+      { t: 'Pazar yeri · RTB', p: [3, 27, 0] }, { t: 'Talep · DSP', p: [24, 27, 0] }, { t: 'Veri katmanı', p: [2, -32, -4] }
+    ];
+
+    // Teknolojiler ve iç yapı. tech: [ad, rol]. layout: 'pipeline' (parçalar sırayla çalışır, iç sinyal hepsinden geçer)
+    // ya da 'set' (paralel parçalar; sinyal ilgili parçaya gider — ör. Kafka'da olayın yazıldığı topic).
+    const DETAILS = {
+      web: { tech: [['collect.js', '< 15 KB, sendBeacon ile toplu gönderim'], ['Prebid.js', 'istemci taraflı header bidding'], ['CMP', 'TCF 2.2 / GPP / KVKK banner'], ['SafeFrame', 'kreatifi sayfadan yalıtır']],
+        layout: 'set', parts: [
+          { id: 'collect', label: 'collect.js', desc: 'Olayları (page_view, product_view, purchase…) rıza dizesiyle birlikte Collector\'a toplu gönderir.' },
+          { id: 'tag', label: 'Reklam etiketi / Prebid.js', desc: 'Reklam alanını tanımlar, header bidding yapar ve ad server\'dan karar ister.' },
+          { id: 'cmp', label: 'CMP (rıza)', desc: 'KVKK açık rızası ve TCF/GPP dizesini üretir; tüm zincire bu sinyal taşınır.' },
+          { id: 'cookie', label: '1P cookie', desc: 'Yayıncının alan adından sunucu tarafında set edilen HttpOnly, Secure çerez (fpc kimliği).' }] },
+      mobil: { tech: [['iOS / Android SDK', 'Swift, Kotlin'], ['OM SDK', 'görünürlük ölçümü'], ['SKAdNetwork / AdAttributionKit', 'iOS atıflama'], ['MRAID 3.0', 'uygulama içi rich media']],
+        layout: 'set', parts: [
+          { id: 'events', label: 'Olay SDK\'sı', desc: 'Çevrimdışı kuyruk ve toplu gönderim; pil ve veri dostu.' },
+          { id: 'ads', label: 'Reklam SDK\'sı', desc: 'Reklam ister, kreatifi gösterir, beacon gönderir.' },
+          { id: 'att', label: 'ATT / izinler', desc: 'IDFA yalnızca ATT izniyle; yoksa IDFV + 1P kimlik. Android\'de GAID / App Set ID.' },
+          { id: 'omsdk', label: 'OM SDK', desc: 'Bağımsız görünürlük ölçümü (OMID).' }] },
+      ctv: { tech: [['VAST 4.x / VMAP', 'video reklam şablonu'], ['OMID', 'görünürlük'], ['SIMID', 'etkileşimli video'], ['SSAI', 'sunucu taraflı ekleme (sonraki faz)']],
+        layout: 'pipeline', parts: [
+          { id: 'player', label: 'Video oynatıcı', desc: 'Ad pod yerlerinde reklam ister.' },
+          { id: 'vast', label: 'VAST istemcisi', desc: 'VAST XML\'i ayrıştırır, medya dosyasını ve izleme URL\'lerini çıkarır.' },
+          { id: 'quartile', label: 'Çeyrek izleme', desc: 'start, firstQuartile, midpoint, thirdQuartile, complete olaylarını gönderir.' }] },
+
+      gateway: { tech: [['Anycast + GeoDNS', 'en yakın bölge'], ['Envoy / NGINX', 'L7 yük dengeleyici'], ['WAF + rate limit', 'kötüye kullanım koruması'], ['MaxMind GeoIP', 'bellek içi konum'], ['TLS 1.3', 'mTLS iç servislerde']],
+        layout: 'pipeline', parts: [
+          { id: 'tls', label: 'TLS sonlandırma', desc: 'Bütçe: TLS + LB p99 ≈ 2 ms.' },
+          { id: 'waf', label: 'WAF / rate limit', desc: 'Kötü niyetli ve aşırı istekleri keser.' },
+          { id: 'validate', label: 'İstek doğrulama', desc: 'Parametreleri ve rıza dizesini doğrular.' },
+          { id: 'geo', label: 'GeoIP + UA', desc: 'Konum ve cihaz bilgisini ekler (bellek içi, ≈ 0,3 ms).' },
+          { id: 'route', label: 'Yönlendirme', desc: 'Reklam isteği → karar motoru, olay → Collector, beacon → Tracking.' }] },
+      collector: { tech: [['Go', 'durumsuz, yatay ölçek'], ['Protobuf + Schema Registry', 'olay sözleşmesi'], ['Kafka producer', 'idempotent, zstd'], ['Yerel disk tamponu', 'Kafka erişilemezse']],
+        layout: 'pipeline', parts: [
+          { id: 'recv', label: 'HTTP alıcı', desc: 'Olayı alır ve hemen 204 döner; sayfa beklemez.' },
+          { id: 'schema', label: 'Şema doğrulama', desc: 'Schema Registry\'deki Protobuf şemasına göre doğrular; hatalılar dlq.* topic\'ine.' },
+          { id: 'stamp', label: 'Damgalama', desc: 'received_time (sunucu zamanı, otorite) ve rıza alanlarını ekler.' },
+          { id: 'produce', label: 'Kafka producer', desc: 'raw.web_events topic\'ine yazar; Kafka yoksa yerel diske tamponlar, kayıp olmaz.' }] },
+      tracking: { tech: [['Go', 'yüksek QPS uç nokta'], ['HMAC-SHA256', 'imzalı URL'], ['302 yönlendirme', 'açık yönlendirme korumalı'], ['Kafka producer', 'ad.events']],
+        layout: 'pipeline', parts: [
+          { id: 'recv', label: 'Beacon alıcı', desc: '/imp, /view, /clk ve video çeyrek uç noktaları.' },
+          { id: 'hmac', label: 'İmza doğrulama', desc: 'payload (request_id, impression_id, price_micros, ts) HMAC ile doğrulanır; sahte beacon ve fiyat manipülasyonu reddedilir.' },
+          { id: 'redirect', label: 'Tıklama yönlendirme', desc: 'Yalnızca imzalı hedefe 302.' },
+          { id: 'produce', label: 'Kafka producer', desc: 'ad.events topic\'ine yazar.' }] },
+
+      adserver: { tech: [['Go', 'sync.Pool, sıfır-kopya parse'], ['Conjunction index', 'bellek içi hedefleme (VLDB 2009)'], ['ONNX Runtime', 'pCTR / pCVR, süreç içi'], ['Aerospike istemcisi', 'idmap + profil'], ['Kubernetes', 'ayrı node pool, CPU pinning']],
+        layout: 'pipeline', parts: [
+          { id: 'consent', label: 'Rıza kontrolü', desc: 'Kişiselleştirme izni yoksa profil okunmaz, yalnızca kontekstüel karar.', tech: 'TCF / GPP ayrıştırıcı' },
+          { id: 'identity', label: 'Kimlik + profil okuma', desc: 'Önce idmap (id → person_id), sonra profil; sıralı, toplam ≈ 2 ms.', tech: 'Aerospike' },
+          { id: 'index', label: 'Targeting index', desc: '100K+ line item arasında aday bulma < 1 ms. Config snapshot + delta ile güncellenir, atomic pointer swap.', tech: 'Conjunction index (DNF)' },
+          { id: 'filters', label: 'Filtreler', desc: 'Frekans sınırı, pacing throttle, marka güvenliği, kreatif uyumu, rekabet ayrımı.' },
+          { id: 'score', label: 'ML skorlama', desc: 'pCTR / pCVR ile eCPM normalizasyonu; kalibrasyon (isotonic) şart.', tech: 'ONNX Runtime' },
+          { id: 'auction', label: 'Birleşik açık artırma', desc: 'Garantili gölge fiyat, Exchange kazananı ve Prebid teklifleri aynı eCPM ölçeğinde yarışır.' },
+          { id: 'creative', label: 'Kreatif + imzalı URL', desc: 'Kreatif markup / VAST ve HMAC imzalı tracking URL\'leri döner; karar olayı async Kafka\'ya.' }] },
+      prebid: { tech: [['Prebid Server (Go)', 'açık kaynak'], ['OpenRTB 2.6', 'bidder dili'], ['200+ bidder adaptörü', 'hazır entegrasyon']],
+        layout: 'set', parts: [
+          { id: 'adapters', label: 'Bidder adaptörleri', desc: 'Her alıcı için istek / yanıt dönüştürücü.' },
+          { id: 'timeout', label: 'Timeout yönetimi', desc: 'Bidder başına süre sınırı; geç kalan beklenmez.' },
+          { id: 'stored', label: 'Stored request', desc: 'Ad unit ayarları sunucuda saklanır, sayfa hafif kalır.' },
+          { id: 'fx', label: 'Para birimi çevrimi', desc: 'Teklifler birleşik açık artırma için tek para birimine çevrilir.' }] },
+      pubpanel: { tech: [['React + TypeScript', 'arayüz'], ['Management API', 'REST + GraphQL'], ['PostgreSQL', 'envanter, kurallar'], ['OIDC SSO + RBAC', 'erişim'], ['CDC (Debezium)', 'config akışı']],
+        layout: 'set', parts: [
+          { id: 'inventory', label: 'Envanter', desc: 'Site / uygulama, ad unit, format ve özel formatlar.' },
+          { id: 'floors', label: 'Taban fiyat kuralları', desc: 'Ülke, cihaz, format ve deal bazında; ML önerisi.' },
+          { id: 'blocks', label: 'Blok listeleri', desc: 'Rakip marka (adomain), kategori (IAB), kreatif özellikleri.' },
+          { id: 'yield', label: 'Getiri raporları', desc: 'eCPM, doluluk, doğrudan / programatik karşılaştırma.' },
+          { id: 'payout', label: 'Hakediş', desc: 'Aylık hakediş raporu, IVT düzeltmeleri, ödeme durumu.' }] },
+
+      exchange: { tech: [['Go', 'düşük gecikme, yüksek QPS'], ['OpenRTB 2.6', 'JSON + gzip, HTTP/2 keep-alive'], ['ads.txt / sellers.json tarayıcı', 'yetkili satıcı'], ['IVT itibar skoru', 'teklif öncesi'], ['Kafka', 'rtb.auctions']],
+        layout: 'pipeline', parts: [
+          { id: 'prefilter', label: 'Ön filtre', desc: 'IVT, ads.txt / sellers.json yetkisi, blok listeleri (badv, bcat), rıza ve vendor izni.' },
+          { id: 'shaping', label: 'DSP seçimi', desc: 'Pretargeting, QPS limiti ve öğrenen kısma: düşük teklif oranlı DSP\'ye daha az istek.' },
+          { id: 'fanout', label: 'Paralel dağıtım', desc: 'Seçili DSP\'lere aynı anda; tmax ≈ 100 ms, geç kalan beklenmez.' },
+          { id: 'auction', label: 'Birinci fiyat açık artırma', desc: 'Taban fiyat (ad unit ve dinamik floor\'un büyüğü), deal öncelikleri, para birimi çevrimi.' },
+          { id: 'notify', label: 'Bildirim + komisyon', desc: 'nurl / burl / lurl; faturalama burl ile. Take rate her açık artırma kaydında saklanır, schain\'e düğüm eklenir.' }] },
+      dsp: { tech: [['Go', 'teklif motoru, p99 < 20 ms'], ['Conjunction index', 'ad server ile ortak kütüphane'], ['ONNX Runtime', 'pCTR / pCVR, bid shading'], ['Aerospike / Redis', 'bütçe ve frekans sayaçları'], ['PID kontrolcü', 'pacing']],
+        layout: 'pipeline', parts: [
+          { id: 'parse', label: 'İstek + rıza', desc: 'OpenRTB 2.6 ayrıştırma; vendor izni yoksa kimlik kullanılmaz.' },
+          { id: 'match', label: 'Hedefleme eşleşmesi', desc: 'Aday kampanyalar (coğrafya, cihaz, kategori, kitle).' },
+          { id: 'budget', label: 'Bütçe + pacing', desc: 'harcanan + rezerve < bütçe; %95\'te kısma, %100\'de durma.', tech: 'Sayaç deposu' },
+          { id: 'fcap', label: 'Frekans sınırı', desc: 'Kullanıcı başına saatlik / günlük kovalar.' },
+          { id: 'price', label: 'Fiyat + bid shading', desc: 'Hedef CPC/CPA → CPM; kazanma olasılığı eğrisiyle birinci fiyatta fazla ödememe.', tech: 'ONNX' },
+          { id: 'respond', label: 'BidResponse', desc: 'Fiyat, kreatif, adomain, crid ve burl.' }] },
+      dspA: { tech: [['OpenRTB 2.6', 'Exchange bağlantısı'], ['exchange_buyers', 'bağlantı ayarları (bizde)']],
+        layout: 'set', parts: [
+          { id: 'pretarget', label: 'Pretargeting', desc: 'Kabul ettiği ülke, format, boyut ve deal listesi.' },
+          { id: 'qps', label: 'QPS limiti', desc: 'Sözleşmedeki saniyelik istek sınırı.' },
+          { id: 'score', label: 'Kısma skoru', desc: 'Teklif ve kazanma oranına göre Exchange\'in hesapladığı pay.' }] },
+      dspB: { tech: [['OpenRTB 2.6', 'Exchange bağlantısı'], ['exchange_buyers', 'bağlantı ayarları (bizde)']],
+        layout: 'set', parts: [
+          { id: 'pretarget', label: 'Pretargeting', desc: 'Kabul ettiği ülke, format, boyut ve deal listesi.' },
+          { id: 'qps', label: 'QPS limiti', desc: 'Sözleşmedeki saniyelik istek sınırı.' },
+          { id: 'score', label: 'Kısma skoru', desc: 'Teklif oranı düşük segmentlerde daha az istek alır.' }] },
+      dspC: { tech: [['OpenRTB 2.6', 'Exchange bağlantısı'], ['exchange_buyers', 'bağlantı ayarları (bizde)']],
+        layout: 'set', parts: [
+          { id: 'pretarget', label: 'Pretargeting', desc: 'Kabul ettiği ülke, format, boyut ve deal listesi.' },
+          { id: 'timeouts', label: 'Timeout istatistiği', desc: 'Sık süre aşımı; eşik aşılınca otomatik kısma.' },
+          { id: 'score', label: 'Kısma skoru', desc: 'Geç yanıtlar skorunu düşürür.' }] },
+      counters: { tech: [['Aerospike', 'varsayılan (ayrı dsp namespace)'], ['Redis Cluster', 'alternatif: INCRBY / Lua'], ['Flink', 'kalıcı sayaçların kaynağı']],
+        layout: 'set', parts: [
+          { id: 'budget', label: 'Günlük / toplam bütçe', desc: 'Kampanya ve reklamveren bazında harcanan tutar.' },
+          { id: 'reserve', label: 'Rezervasyon', desc: 'Teklif verilip henüz faturalanmamış (burl gelmemiş) tutar.' },
+          { id: 'fcap', label: 'Frekans kovaları', desc: 'Kullanıcı × kampanya saatlik ve günlük sayaçlar.' },
+          { id: 'throttle', label: 'Pacing throttle', desc: 'Pacing kontrolcüsünün ürettiği 0–1 katılım olasılığı.' }] },
+      advpanel: { tech: [['React + TypeScript', 'self-servis arayüz'], ['Management API', 'REST + GraphQL'], ['ClickHouse', 'anlık raporlar'], ['Ödeme / e-fatura', 'bakiye, kredi limiti']],
+        layout: 'set', parts: [
+          { id: 'campaign', label: 'Kampanya kurulumu', desc: 'Hedef, tarih, bütçe ve hedefleme.' },
+          { id: 'audience', label: 'Kitle seçimi', desc: 'Yayıncının izin verdiği segmentler; kişi verisi DSP\'ye geçmez.' },
+          { id: 'creative', label: 'Kreatif', desc: 'Yükleme, otomatik tarama ve onay, önizleme.' },
+          { id: 'strategy', label: 'Teklif stratejisi', desc: 'Sabit CPM, hedef CPC, hedef CPA.' },
+          { id: 'billing', label: 'Bütçe ve ödeme', desc: 'Ön ödeme bakiyesi veya kredi limiti, faturalar.' },
+          { id: 'reports', label: 'Raporlar', desc: 'Gösterim, tıklama, dönüşüm, harcama.' }] },
+
+      identity: { tech: [['Flink', 'gerçek zamanlı bağlama'], ['Spark', 'günlük connected components'], ['Aerospike idmap', 'id → person_id'], ['SHA-256', 'email / telefon hash\'i']],
+        layout: 'pipeline', parts: [
+          { id: 'normalize', label: 'Normalize + hash', desc: 'Email küçük harf + trim, telefon E.164 → SHA-256. Ham PII sisteme girmez.' },
+          { id: 'lookup', label: 'idmap arama', desc: '{tenant}:{id_type}:{id_value} → person_id (UUIDv7).' },
+          { id: 'merge', label: 'Deterministik birleştirme', desc: 'Aynı olayda görülen kimlikler (ör. login: fpc + hem) iki kişiyi anında birleştirir; identity.merges yayınlanır.' },
+          { id: 'graph', label: 'Graph builder (günlük)', desc: 'Union-find; küme başına kimlik sınırı ile dev küme engellenir, 180 günde çürüme.' }] },
+      profile: { tech: [['Aerospike', 'SSD + RAM indeks, p99 < 1 ms'], ['XDR', 'bölgeler arası replikasyon'], ['TTL', '180 gün inaktivite']],
+        layout: 'set', parts: [
+          { id: 'idmap', label: 'idmap seti', desc: 'Kimlik → person_id; her görüşte TTL yenilenir.' },
+          { id: 'seg', label: 'seg', desc: 'seg_id → bitiş zamanı; okumada süresi dolanlar filtrelenir.' },
+          { id: 'fcap', label: 'fcap', desc: 'Saatlik (24) + günlük (30) kova ve ömür boyu toplam.' },
+          { id: 'attrs', label: 'attrs', desc: 'Ev konumu, LTV bandı, dil vb.' },
+          { id: 'consent', label: 'consent', desc: 'TC dizesi hash\'i, amaç bit maskesi, KVKK açık rıza, İYS durumu.' }] },
+      segment: { tech: [['Flink keyed state', 'gerçek zamanlı kurallar'], ['Spark / Trino / ClickHouse SQL', 'batch segment'], ['Apache DataSketches', 'Theta sketch erişim tahmini'], ['FAISS / Qdrant', 'lookalike (ANN)']],
+        layout: 'set', parts: [
+          { id: 'realtime', label: 'Gerçek zamanlı kurallar', desc: 'Segment DSL → Flink; olay türü → kural indeksi, saniyeler içinde üyelik.' },
+          { id: 'batch', label: 'Batch SQL', desc: 'Aynı DSL → SQL; gece reconcile işi.' },
+          { id: 'lal', label: 'Lookalike / propensity', desc: 'Embedding + ANN, GBDT modelleri (günlük).' },
+          { id: 'sketch', label: 'Sketch', desc: '"A ∩ B ∩ ¬C kaç kişi?" milisaniyede, ham veriye inmeden.' },
+          { id: 'opaque', label: 'Opak segment alıcısı', desc: 'Clean room çıktısı; exportable = false.' }] },
+
+      kafka: { tech: [['Apache Kafka (KRaft)', 'olay omurgası'], ['Schema Registry', 'Protobuf, geriye uyumlu evrim'], ['MirrorMaker 2', 'bölgeler arası'], ['zstd', '~4× sıkıştırma']],
+        layout: 'set', parts: [
+          { id: 'raw', label: 'raw.web_events', desc: '96 partition, 3 gün; Collector çıkışı.' },
+          { id: 'dec', label: 'ad.decisions', desc: '128 partition, 3 gün; ad server karar logu.' },
+          { id: 'adev', label: 'ad.events', desc: '64 partition, 7 gün; gösterim, görünürlük, tıklama.' },
+          { id: 'rtb', label: 'rtb.auctions', desc: 'Exchange açık artırma özetleri (DSP ekibine kapalı).' },
+          { id: 'dlq', label: 'dlq.*', desc: 'Şemaya uymayan olaylar, 14 gün.' }] },
+      flink: { tech: [['Apache Flink', 'event-time, exactly-once'], ['RocksDB state', 'büyük keyed state'], ['Checkpoint → S3', 'kurtarma']],
+        layout: 'set', parts: [
+          { id: 'enrich', label: 'Zenginleştirme hattı', desc: 'Doğrula → rıza filtresi → bot filtresi → GeoIP / UA / içerik kategorisi → enriched.*' },
+          { id: 'idop', label: 'Kimlik operatörü', desc: 'person_id çözümleme ve birleştirme olayları.' },
+          { id: 'segop', label: 'Segment değerlendirme', desc: 'Gerçek zamanlı kurallar keyed state\'te.' },
+          { id: 'adline', label: 'Reklam hattı', desc: '24 saatlik dedup, IVT işareti, ClickHouse\'a yazım.' },
+          { id: 'billing', label: 'Faturalama sayaçları', desc: 'Harcama, bütçe ve frekans sayaçları; saat kapanışında deftere.' }] },
+      clickhouse: { tech: [['ClickHouse', 'ReplicatedMergeTree'], ['Materialized view', 'saatlik agrega'], ['uniqCombined64', 'tekil erişim']],
+        layout: 'pipeline', parts: [
+          { id: 'buffer', label: 'Toplu ekleme tamponu', desc: 'Satırlar biriktirilip tek seferde yazılır (küçük insert\'ler pahalıdır).' },
+          { id: 'raw', label: 'ads.ad_events', desc: 'Ham olaylar, 90 gün, IVT işaretli.' },
+          { id: 'mv', label: 'mv_ad_stats_hourly', desc: 'IVT hariç; faturalanan olayın fiyatından gelir.' },
+          { id: 'hourly', label: 'ads.ad_stats_hourly', desc: 'Saatlik agrega, 25 ay; paneller buradan okur.' }] },
+      iceberg: { tech: [['Apache Iceberg', 'açık tablo formatı, time travel'], ['S3 / MinIO', 'nesne depolama'], ['Trino + Spark', 'sorgu ve batch'], ['Dagster / Airflow', 'orkestrasyon']],
+        layout: 'pipeline', parts: [
+          { id: 'buffer', label: 'Yazım tamponu', desc: 'Olaylar bir sonraki commit\'e kadar bekler.' },
+          { id: 'commit', label: 'Snapshot commit', desc: 'Yeni snapshot; batch işler ve clean room artık görebilir.' },
+          { id: 'tables', label: 'Ham olay tabloları', desc: 'DMP olayları 13 ay, reklam olayları; tenant bazlı.' },
+          { id: 'jobs', label: 'Batch işler', desc: 'Identity graph, batch segment, ML eğitimi, forecast.' },
+          { id: 'dsar', label: 'Row-level delete', desc: 'Silme talepleri (DSAR) merge-on-read + compaction ile.' }] },
+      ledger: { tech: [['PostgreSQL', 'ayrı veritabanı, ACID'], ['Çift taraflı defter', 'append-only, ters kayıt'], ['GİB özel entegratör', 'e-fatura / e-arşiv'], ['TCMB kuru', 'TRY / USD / EUR']],
+        layout: 'pipeline', parts: [
+          { id: 'hourly', label: 'Saat kapanışı', desc: 'Flink\'in kapanmış saat sayaçları idempotent anahtarla alınır.' },
+          { id: 'entries', label: 'ledger_entries', desc: 'Her işlem en az iki satır, toplamı sıfır.' },
+          { id: 'split', label: 'Komisyon ayrımı', desc: 'Yayıncı payı = fiyat × (1 − take rate); platform geliri; vergi.' },
+          { id: 'payouts', label: 'Hakediş', desc: 'Aylık; IVT düzeltmesi düşülür, eşik altı devreder.' },
+          { id: 'invoices', label: 'Fatura', desc: 'Reklamverene e-fatura / e-arşiv.' }] },
+      cleanroom: { tech: [['AMD SEV-SNP / Intel TDX', 'gizli VM + remote attestation'], ['ECDH-PSI', 'kriptografik eşleştirme'], ['Spark SQL / DuckDB', 'sorgu motoru'], ['OpenDP', 'diferansiyel gizlilik']],
+        layout: 'pipeline', parts: [
+          { id: 'ingest', label: 'Şifreli ingest', desc: 'Partner, Uploader CLI ile normalize + hash\'leyip kendi anahtarıyla şifreler.' },
+          { id: 'match', label: 'Eşleştirme', desc: 'TEE içinde hash join ya da ECDH-PSI; opak match_id = HMAC(collab_key, id).' },
+          { id: 'policy', label: 'Politika motoru', desc: 'Yalnızca onaylı şablonlar; kolon rolleri, SELECT * reddi.' },
+          { id: 'query', label: 'Sorgu motoru', desc: 'Şablon sorgusu (ör. sales_lift), revenue clamp.' },
+          { id: 'dp', label: 'DP + eşik', desc: 'Gürültü eklenir, eşik (k) gürültülü sayıya uygulanır, epsilon bütçesinden düşülür.' },
+          { id: 'output', label: 'Çıktı + audit', desc: 'Agrega rapor ya da opak segment; her sorgu imzalı audit log\'a.' }] }
+    };
+
+    // ------------------------------------------------------------------
+    // 2. Sahne
+    // ------------------------------------------------------------------
+    const stage = $('stage');
+    let renderer;
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    } catch (e) {
+      fail('Tarayıcınız veya cihazınız WebGL desteklemiyor.');
+      throw e;
+    }
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.setClearColor(0x000000, 0);
+    stage.appendChild(renderer.domElement);
+
+    const labelRenderer = new CSS2DRenderer({ element: $('labels') });
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x070b12, 0.0045);
+    const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 600);
+    camera.position.set(-34, 24, 80);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.target.set(-2, -2, 2);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.minDistance = 18;
+    controls.maxDistance = 170;
+    controls.autoRotate = !reduceMotion;
+    controls.autoRotateSpeed = 0.35;
+
+    scene.add(new THREE.AmbientLight(0x8aa0c0, 0.55));
+    const key = new THREE.PointLight(0x9cc4ff, 900, 0, 1.6); key.position.set(-20, 40, 40); scene.add(key);
+    const rim = new THREE.PointLight(0xff9a3d, 500, 0, 1.6); rim.position.set(40, -10, -30); scene.add(rim);
+
+    // nöral toz: derinlik hissi veren arka plan noktaları
+    {
+      const n = 900, pos = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const r = rand(60, 190), th = rand(0, Math.PI * 2), ph = Math.acos(rand(-1, 1));
+        pos.set([r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) * 0.6, r * Math.sin(ph) * Math.sin(th)], i * 3);
+      }
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+      scene.add(new THREE.Points(g, new THREE.PointsMaterial({ color: 0x35507a, size: 0.55, transparent: true, opacity: 0.7, depthWrite: false })));
+    }
+
+    // parıltı dokusu (paketler ve halelerde)
+    const glowTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const x = c.getContext('2d'); const gr = x.createRadialGradient(32, 32, 0, 32, 32, 32);
+      gr.addColorStop(0, 'rgba(255,255,255,1)'); gr.addColorStop(0.25, 'rgba(255,255,255,0.85)'); gr.addColorStop(0.6, 'rgba(255,255,255,0.18)'); gr.addColorStop(1, 'rgba(255,255,255,0)');
+      x.fillStyle = gr; x.fillRect(0, 0, 64, 64);
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    })();
+    const ringTex = (() => {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const x = c.getContext('2d'); x.strokeStyle = '#fff'; x.lineWidth = 5; x.beginPath(); x.arc(32, 32, 25, 0, Math.PI * 2); x.stroke();
+      const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+    })();
+
+    // --- düğümler ---
+    const byId = {};
+    const pickables = [];
+    const sphereGeo = new THREE.SphereGeometry(1, 32, 20);
+    const icoGeo = new THREE.IcosahedronGeometry(1, 0);
+    const dotGeo = new THREE.SphereGeometry(0.22, 8, 6);
+
+    for (const n of NODES) {
+      const color = new THREE.Color(GROUPS[n.g].c);
+      const r = n.r ?? 1.25;
+      const root = new THREE.Group(); root.position.set(...n.p); scene.add(root);
+      n.root = root; n.r = r; n.color = color; n.flash = 0; n.load = 0; n.queue = []; n.acc = 0; n.pos = root.position;
+      byId[n.id] = n;
+
+      if (n.kind === 'queue' || n.kind === 'kv') {
+        const h = r * 2.1;
+        const glass = new THREE.Mesh(new THREE.CylinderGeometry(r, r, h, 36, 1, true),
+          new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.25, transparent: true, opacity: 0.13, side: THREE.DoubleSide, depthWrite: false, roughness: 0.2, metalness: 0.1 }));
+        root.add(glass);
+        const rimMat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 1.1 });
+        for (const y of [-h / 2, h / 2]) {
+          const rimMesh = new THREE.Mesh(new THREE.TorusGeometry(r, 0.07, 8, 48), rimMat);
+          rimMesh.rotation.x = Math.PI / 2; rimMesh.position.y = y; root.add(rimMesh);
+        }
+        const fillGeo = new THREE.CylinderGeometry(r * 0.86, r * 0.86, 1, 36); fillGeo.translate(0, 0.5, 0);
+        const fill = new THREE.Mesh(fillGeo, new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.6, transparent: true, opacity: 0.35, depthWrite: false }));
+        fill.position.y = -h / 2; fill.scale.y = 0.001; root.add(fill);
+        n.glass = glass; n.fill = fill; n.h = h; n.mat = glass.material; n.rimMat = rimMat;
+        if (n.kind === 'queue') {
+          const dots = new THREE.InstancedMesh(dotGeo, new THREE.MeshBasicMaterial({ color: color.clone().lerp(new THREE.Color('#ffffff'), 0.45) }), 90);
+          dots.count = 0; dots.frustumCulled = false; root.add(dots); n.dots = dots;
+        }
+        glass.userData.node = n; pickables.push(glass);
+      } else {
+        const geo = n.kind === 'actor' ? icoGeo : sphereGeo;
+        const mat = new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: 0.55, roughness: 0.35, metalness: 0.15, flatShading: n.kind === 'actor' });
+        const mesh = new THREE.Mesh(geo, mat); mesh.scale.setScalar(r); root.add(mesh);
+        n.mesh = mesh; n.mat = mat;
+        mesh.userData.node = n; pickables.push(mesh);
+      }
+      // hale
+      const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTex, color, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false }));
+      halo.scale.setScalar(r * 5.2); root.add(halo); n.halo = halo;
+
+      // etiket
+      const el = document.createElement('div');
+      el.className = 'nl'; el.style.setProperty('--c', GROUPS[n.g].c);
+      el.innerHTML = `<b></b><span class="qc"></span>`;
+      el.querySelector('b').textContent = n.label;
+      n.qcEl = el.querySelector('.qc'); n.labelEl = el;
+      const lab = new CSS2DObject(el); lab.position.set(0, (n.kind === 'queue' || n.kind === 'kv') ? n.h / 2 + 1.2 : r + 1.1, 0); root.add(lab);
+    }
+
+    // Exchange açık artırma halkası: eşzamanlı açık artırma sayısını gösterir
+    {
+      const ex = byId.exchange;
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(ex.r * 1.9, 0.09, 8, 72), new THREE.MeshBasicMaterial({ color: ex.color, transparent: true, opacity: 0.15 }));
+      ring.rotation.x = Math.PI / 2.4; ex.root.add(ring); ex.ring = ring; ex.auctions = 0;
+    }
+
+    for (const c of COLUMNS) {
+      const el = document.createElement('div'); el.className = 'col'; el.textContent = c.t;
+      const o = new CSS2DObject(el); o.position.set(...c.p); scene.add(o);
+    }
+
+    // --- bağlantılar ---
+    const edgeMap = new Map();
+    const edges = [];
+    for (const [a, b, line] of EDGES) {
+      const A = byId[a].pos.clone(), B = byId[b].pos.clone();
+      const d = A.distanceTo(B), h = hash01(a + b);
+      const mid = A.clone().add(B).multiplyScalar(0.5);
+      mid.y += d * 0.1; mid.z += (h - 0.5) * d * 0.4; mid.x += (hash01(b + a) - 0.5) * d * 0.15;
+      const curve = new THREE.QuadraticBezierCurve3(A, mid, B);
+      const geo = new THREE.BufferGeometry().setFromPoints(curve.getPoints(48));
+      const mat = new THREE.LineBasicMaterial({ color: LINES[line].c, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending });
+      const obj = new THREE.Line(geo, mat); scene.add(obj);
+      const e = { a, b, line, curve, len: curve.getLength(), mat, glow: 0, hl: 0 };
+      edges.push(e); edgeMap.set(a + '|' + b, e);
+    }
+    function edgeBetween(a, b) {
+      const e = edgeMap.get(a + '|' + b); if (e) return { e, rev: false };
+      const r = edgeMap.get(b + '|' + a); if (r) return { e: r, rev: true };
+      throw new Error('Bağlantı yok: ' + a + ' → ' + b);
+    }
+
+    // --- iç yapı: seçilen düğümün etrafında alt bileşenler açılır, gelen sinyal içlerinde dolaşır ---
+    const partGeo = new THREE.SphereGeometry(0.62, 20, 14);
+    const inner = [];
+    const camRight = new THREE.Vector3(), camUp = new THREE.Vector3(), tmpA = new THREE.Vector3(), tmpB = new THREE.Vector3();
+    function buildParts(n) {
+      const d = DETAILS[n.id];
+      if (!d || n.partsGroup) return;
+      const grp = new THREE.Group(); grp.position.copy(n.pos); grp.visible = false; grp.scale.setScalar(0.001); scene.add(grp);
+      const col = n.color.clone().lerp(new THREE.Color('#ffffff'), 0.35);
+      n.layout = d.layout;
+      n.parts = d.parts.map((p, i) => {
+        const mat = new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.5, roughness: 0.4 });
+        const mesh = new THREE.Mesh(partGeo, mat); grp.add(mesh);
+        const el = document.createElement('div'); el.className = 'pl'; el.style.setProperty('--c', GROUPS[n.g].c);
+        el.innerHTML = '<i></i><span></span>';
+        el.querySelector('i').textContent = d.layout === 'pipeline' ? String(i + 1) : '◇';
+        el.querySelector('span').textContent = p.label;
+        const lab = new CSS2DObject(el); lab.position.set(0, 1.25, 0); lab.visible = false; mesh.add(lab);
+        const part = { ...p, idx: i, node: n, mesh, mat, lab, flash: 0 };
+        mesh.userData.part = part; pickables.push(mesh);
+        return part;
+      });
+      const lineMat = new THREE.LineBasicMaterial({ color: n.color, transparent: true, opacity: 0.5, depthWrite: false, blending: THREE.AdditiveBlending });
+      n.partLines = new THREE.LineSegments(new THREE.BufferGeometry(), lineMat); grp.add(n.partLines);
+      n.partsGroup = grp; n.ex = 0; n.expanded = false; n.lastPulse = -1;
+    }
+    // Parçalar o anki kameraya dönük düzlemde dizilir: pipeline düğümün üstünde soldan sağa yay, set tam çember.
+    function layoutParts(n) {
+      camera.updateMatrixWorld();
+      camRight.setFromMatrixColumn(camera.matrixWorld, 0); camUp.setFromMatrixColumn(camera.matrixWorld, 1);
+      const k = n.parts.length, R = n.r * 1.6 + 3.2 + k * 0.35;
+      n.partR = R;
+      const pts = [];
+      n.parts.forEach((p, i) => {
+        const pipe = n.layout === 'pipeline';
+        const a = pipe ? Math.PI * (0.95 - 0.9 * (k === 1 ? 0.5 : i / (k - 1))) : Math.PI / 2 - (i / k) * Math.PI * 2;
+        p.mesh.position.copy(camRight).multiplyScalar(Math.cos(a) * R).addScaledVector(camUp, Math.sin(a) * R * (pipe ? 0.8 : 1));
+        pts.push(0, 0, 0, ...p.mesh.position.toArray());
+        if (pipe && i > 0) pts.push(...n.parts[i - 1].mesh.position.toArray(), ...p.mesh.position.toArray());
+      });
+      n.partLines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+      n.partLines.geometry.computeBoundingSphere();
+    }
+    function expand(n, on) {
+      if (!DETAILS[n.id]) return;
+      buildParts(n);
+      if (on && !n.expanded) layoutParts(n);
+      n.expanded = on;
+      if (on) n.partsGroup.visible = true;
+    }
+    const expandAll = { on: false };
+    // Düğüme ulaşan sinyal iç yapıda dolaşır: pipeline'da tüm adımlardan sırayla, set'te ilgili parçaya.
+    function innerPulse(n, hint, traced) {
+      if (!n.expanded || n.ex < 0.6) return;
+      if (!traced && sim.t - n.lastPulse < 0.3) return;
+      n.lastPulse = sim.t;
+      const path = n.layout === 'pipeline' ? [null, ...n.parts, null] : [null, n.parts.find((x) => x.id === hint) || pick(n.parts), null];
+      const s = sprite(); s.material.color.set(traced ? '#ffffff' : '#dfeaff');
+      inner.push({ n, path, seg: 0, t: 0, s, size: traced ? 1.3 : 0.85, g: sim.gen });
+    }
+    const partLocal = (n, p, out) => (p ? out.copy(p.mesh.position) : out.set(0, 0, 0)).multiplyScalar(n.ex).add(n.pos);
+
+    // --- son işlem: parıltı ---
+    const composer = new EffectComposer(renderer);
+    composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(new THREE.Vector2(1, 1), 0.72, 0.5, 0.2);
+    composer.addPass(bloom);
+    composer.addPass(new OutputPass());
+    let useBloom = true;
+
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false); composer.setSize(w, h); labelRenderer.setSize(w, h);
+      camera.aspect = w / h;
+      // dar ekranda sahneyi sığdırmak için uzaklaş
+      camera.fov = w < 760 ? 62 : 50;
+      camera.updateProjectionMatrix();
+    }
+    addEventListener('resize', resize);
+    resize();
+    // dar / dikey ekranda tüm ağ görünsün diye kamerayı aynı açıdan geri çek
+    {
+      const off = camera.position.clone().sub(controls.target);
+      camera.position.copy(controls.target).add(off.multiplyScalar(Math.max(1, 1.35 / camera.aspect)));
+    }
+
+    // ------------------------------------------------------------------
+    // 3. Simülasyon motoru (simülasyon zamanı; duraklatınca her şey durur)
+    // ------------------------------------------------------------------
+    const sim = { t: 0, speed: 1, paused: false, gen: 0, rate: 0.8, focus: true, tracing: 0, reqAcc: 0, evAcc: 0 };
+    const stats = { req: 0, cpmSum: 0, wins: 0, timeouts: 0, ivt: 0, revenue: 0, take: 0, events: 0 };
+    let timers = [];
+    const packets = [];
+    const pool = [];
+    const MAX_PACKETS = 420;
+    const TAKE_RATE = 0.15;
+    const FLOOR = 30;
+    const TMAX = 1.0;   // simülasyonda DSP yanıt süresi sınırı (100 ms'nin temsili)
+
+    // sıfırlamadan önce kurulmuş zamanlayıcılar hiç çözülmez; eski akış orada sessizce biter
+    const wait = (s) => { const g = sim.gen; return new Promise((res) => timers.push({ at: sim.t + s, res, g })); };
+
+    function sprite(map = glowTex) {
+      const s = pool.pop() || new THREE.Sprite(new THREE.SpriteMaterial({ map, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+      s.material.map = map;
+      scene.add(s); return s;
+    }
+    function release(s) { scene.remove(s); pool.push(s); }
+
+    // a → b arasında bir paket yollar; vardığında düğüm ateşlenir. o.fail: yol ortasında söner (süre aşımı / ret).
+    function send(a, b, kind, o = {}) {
+      const g = sim.gen;
+      const { e, rev } = edgeBetween(a, b);
+      return new Promise((res) => {
+        const s = sprite();
+        s.material.color.set(PACKET[kind] || '#ffffff');
+        const traced = !!o.traced;
+        const ring = traced ? sprite(ringTex) : null;
+        if (ring) ring.material.color.set('#ffffff');
+        const speed = 26 * (o.slow ? 0.45 : 1);
+        packets.push({ e, rev, t: 0, dur: Math.max(0.35, e.len / speed), s, ring, traced, to: b, fail: o.fail, res, g, size: traced ? 1.9 : 1.05, part: o.part });
+        e.glow = Math.min(1, e.glow + (traced ? 1 : 0.5));
+      });
+    }
+    const trip = async (a, b, kind, o) => { await send(a, b, kind, o); await send(b, a, kind, o); };
+
+    // hint: sinyalin iç yapıda gideceği parça (ör. Kafka topic'i); pulse = false ise iç sinyal üretmez
+    function fire(id, amount = 1, hint, traced, pulse = true) {
+      const n = byId[id]; n.flash = Math.min(1.4, n.flash + amount); n.load = Math.min(1, n.load + 0.12);
+      if (pulse && n.expanded) innerPulse(n, hint, traced);
+    }
+
+    function enqueue(id, item) {
+      const n = byId[id];
+      if (n.queue.length >= n.cap * 1.5) return; // tampon dolu: simülasyonda en eskiyi korur, yenisini düşürür
+      n.queue.push(item); fire(id, 0.4, undefined, false, false); // iç sinyal, kaydı getiren paket varınca üretildi
+    }
+
+    // --- günlük ---
+    const logEl = $('log');
+    function log(text, cls = '') {
+      const li = document.createElement('li'); if (cls) li.className = cls;
+      const tm = document.createElement('time'); tm.textContent = fmt1.format(sim.t) + 's';
+      const sp = document.createElement('span'); sp.textContent = text;
+      li.append(tm, sp); logEl.prepend(li);
+      while (logEl.children.length > 60) logEl.lastChild.remove();
+    }
+    const tlog = (tr, text, cls = '') => { if (tr) log('▶ ' + text, ('tr ' + cls).trim()); else if (cls === 'bad' && Math.random() < 0.15) log(text, cls); };
+
+    // ------------------------------------------------------------------
+    // 4. Akışlar
+    // ------------------------------------------------------------------
+    async function adRequest(tr = false) {
+      const g = sim.gen;
+      const src = pick(['web', 'web', 'mobil', 'ctv']);
+      const consent = Math.random() < 0.72;
+      const o = { traced: tr };
+      stats.req++;
+      tlog(tr, `${byId[src].label}: reklam isteği (rıza ${consent ? 'var' : 'yok → yalnızca kontekstüel'})`);
+      await send(src, 'gateway', 'req', o);
+      await send('gateway', 'adserver', 'req', o);
+      if (g !== sim.gen) return;
+
+      if (consent) {
+        tlog(tr, 'Ad Server → Aerospike: önce idmap (id → person_id), sonra profil okunur');
+        await send('adserver', 'profile', 'read', { ...o, part: 'idmap' }); await send('profile', 'adserver', 'read', o);
+        await send('adserver', 'profile', 'read', { ...o, part: pick(['seg', 'fcap', 'consent']) }); await send('profile', 'adserver', 'read', o);
+      }
+
+      const prebidP = Math.random() < 0.55
+        ? trip('adserver', 'prebid', 'bid', o).then(() => ({ who: 'Prebid', price: rand(18, 44) }))
+        : Promise.resolve(null);
+      const exP = exchangeAuction(consent, tr);
+      const [pb, ex] = await Promise.all([prebidP, exP]);
+      if (g !== sim.gen) return;
+
+      const cands = [];
+      if (Math.random() < 0.28) cands.push({ who: 'Garantili kampanya', price: rand(34, 50), direct: true });
+      if (pb) cands.push(pb);
+      if (ex) cands.push(ex);
+      if (!cands.length) {
+        tlog(tr, 'Uygun teklif yok → house reklamı');
+        await send('adserver', 'gateway', 'ad', o); await send('gateway', src, 'ad', { ...o, part: { web: 'tag', mobil: 'ads' }[src] });
+        return;
+      }
+      cands.sort((x, y) => y.price - x.price);
+      const w = cands[0];
+      stats.wins++; stats.cpmSum += w.price;
+      tlog(tr, `Birleşik açık artırma: kazanan ${w.who} · ${fmt1.format(w.price)} ₺ CPM` + (cands.length > 1 ? ` (${cands.length} aday)` : ''));
+
+      send('adserver', 'kafka', 'log', { part: 'dec' }).then(() => g === sim.gen && enqueue('kafka', { topic: 'dec' }));
+      await send('adserver', 'gateway', 'ad', o);
+      await send('gateway', src, 'ad', { ...o, part: { web: 'tag', mobil: 'ads' }[src] });
+      if (g !== sim.gen) return;
+      tlog(tr, 'Kreatif güvenli çerçevede yüklendi; gösterim beacon\'ı gönderiliyor');
+      await wait(0.25);
+      await send(src, 'tracking', 'beacon', o);
+      await send('tracking', 'kafka', 'beacon', { ...o, part: 'adev' });
+      if (g !== sim.gen) return;
+      enqueue('kafka', { topic: 'ad', price: w.price, direct: !!w.direct, tr });
+      tlog(tr, 'Beacon Kafka\'da: Flink tüketicisini bekliyor');
+    }
+
+    async function exchangeAuction(consent, tr) {
+      const g = sim.gen;
+      const o = { traced: tr };
+      const ex = byId.exchange;
+      await send('adserver', 'exchange', 'req', o);
+      if (Math.random() < 0.06) {
+        stats.ivt++;
+        tlog(tr, 'Exchange ön filtre: şüpheli trafik (IVT) — istek hiçbir DSP\'ye gitmedi', 'bad');
+        await send('exchange', 'adserver', 'reject', o);
+        return null;
+      }
+      ex.auctions++;
+      const dsps = ['dsp', 'dspA', 'dspB', 'dspC'].filter((d) => d === 'dsp' || Math.random() > 0.22);
+      if (tr) tlog(tr, `Exchange teklif isteğini ${dsps.length} DSP'ye paralel dağıttı (tmax ≈ 100 ms)`);
+      const bids = await Promise.all(dsps.map((d) => askDsp(d, consent, tr)));
+      ex.auctions = Math.max(0, ex.auctions - 1);
+      if (g !== sim.gen) return null;
+      const valid = bids.filter((b) => b && b.price >= FLOOR).sort((x, y) => y.price - x.price);
+      const below = bids.filter((b) => b && b.price < FLOOR).length;
+      send('exchange', 'kafka', 'log', { part: 'rtb' }).then(() => g === sim.gen && enqueue('kafka', { topic: 'rtb' }));
+      if (!valid.length) {
+        tlog(tr, `Exchange: taban fiyatın (${FLOOR} ₺) üstünde teklif yok` + (below ? ` · ${below} teklif elendi` : ''));
+        await send('exchange', 'adserver', 'reject', o);
+        return null;
+      }
+      const win = valid[0];
+      tlog(tr, `Exchange birinci fiyat: ${byId[win.d].label} ${fmt1.format(win.price)} ₺ öder` + (below ? ` · ${below} teklif taban altında` : ''));
+      send('exchange', win.d, 'win');
+      await send('exchange', 'adserver', 'win', o);
+      return { who: byId[win.d].label, price: win.price, d: win.d };
+    }
+
+    async function askDsp(d, consent, tr) {
+      const o = { traced: tr };
+      await send('exchange', d, 'req', o);
+      if (d === 'dsp') {
+        await send('dsp', 'counters', 'read', { ...o, part: pick(['budget', 'reserve', 'fcap', 'throttle']) }); await send('counters', 'dsp', 'read', o);
+        if (consent) { await send('dsp', 'segment', 'seg', { ...o, part: 'realtime' }); await send('segment', 'dsp', 'seg', o); }
+      }
+      const slowP = { dsp: 0.02, dspA: 0.08, dspB: 0.12, dspC: 0.35 }[d];
+      if (Math.random() < slowP) {
+        stats.timeouts++;
+        tlog(tr, `${byId[d].label}: süre aşımı — beklenmedi`, 'bad');
+        await send(d, 'exchange', 'reject', { ...o, fail: true, slow: true });
+        return null;
+      }
+      const price = { dsp: rand(26, 52), dspA: rand(24, 56), dspB: rand(20, 46), dspC: rand(22, 50) }[d];
+      await send(d, 'exchange', 'bid', o);
+      return { d, price };
+    }
+
+    async function collectEvent(tr = false) {
+      const g = sim.gen;
+      const src = pick(['web', 'web', 'web', 'mobil', 'ctv']);
+      const o = { traced: tr };
+      stats.events++;
+      tlog(tr, `${byId[src].label}: page_view olayı + rıza dizesi`);
+      await send(src, 'collector', 'event', o);
+      if (g !== sim.gen) return;
+      tlog(tr, 'Collector 204 döndü ve olayı raw.web_events topic\'ine yazdı');
+      await send('collector', 'kafka', 'event', { ...o, part: 'raw' });
+      if (g !== sim.gen) return;
+      enqueue('kafka', { topic: 'raw', profiling: Math.random() < 0.7, tr });
+      tlog(tr, 'Olay Kafka\'da bekliyor (consumer lag)');
+    }
+
+    // Kafka tüketicisi: Flink
+    async function consume(item) {
+      const g = sim.gen;
+      const tr = !!item.tr;
+      const o = { traced: tr };
+      await send('kafka', 'flink', item.topic === 'raw' ? 'event' : item.topic === 'ad' ? 'beacon' : 'log', { ...o, part: item.topic === 'raw' ? 'enrich' : 'adline' });
+      if (g !== sim.gen) return;
+      if (item.topic === 'raw') {
+        if (item.profiling) {
+          tlog(tr, 'Flink: doğrula → rıza (profilleme izni var) → kimlik çözümleme → segment güncelle');
+          send('flink', 'identity', 'read', o).then(() => g === sim.gen && send('identity', 'profile', 'seg', { ...o, part: 'idmap' }));
+          if (Math.random() < 0.4) send('flink', 'segment', 'seg', { ...o, part: 'realtime' }).then(() => g === sim.gen && send('segment', 'profile', 'seg', { ...o, part: 'seg' }));
+        } else {
+          tlog(tr, 'Flink: profilleme izni yok → olay yalnızca agrega analitiğe gider, profile yazılmaz');
+        }
+        send('flink', 'iceberg', 'event', o).then(() => { if (g === sim.gen) { enqueue('iceberg', { tr }); tlog(tr, 'Olay Iceberg yazım tamponunda: bir sonraki commit\'i bekliyor'); } });
+      } else if (item.topic === 'ad') {
+        const ivt = Math.random() < 0.03;
+        send('flink', 'clickhouse', 'report', o).then(() => g === sim.gen && enqueue('clickhouse', {}));
+        send('flink', 'iceberg', 'event').then(() => g === sim.gen && enqueue('iceberg', {}));
+        if (ivt) {
+          stats.ivt++;
+          tlog(tr, 'Flink: gösterim sonrası IVT işareti — faturalanmaz, rapora yansımaz', 'bad');
+          return;
+        }
+        if (!item.direct) send('flink', 'counters', 'read', { ...o, part: pick(['budget', 'fcap']) });
+        send('flink', 'ledger', 'money', o).then(() => {
+          if (g !== sim.gen) return;
+          enqueue('ledger', { amount: item.price, tr });
+          tlog(tr, `Flink: ${fmt1.format(item.price)} ₺ harcama deftere gidiyor — saat kapanışını bekliyor`, 'money');
+        });
+      } else {
+        send('flink', 'clickhouse', 'report').then(() => g === sim.gen && enqueue('clickhouse', {}));
+      }
+    }
+
+    // Kayıt yerleri boşaldığında ne olur
+    const DRAIN = {
+      kafka(items) { for (const it of items) consume(it); },
+      clickhouse(items) {
+        if (items.length >= 4 || Math.random() < 0.3) { const to = pick(['pubpanel', 'advpanel']); send('clickhouse', to, 'report', { part: to === 'pubpanel' ? 'yield' : 'reports' }); }
+      },
+      iceberg(items) {
+        log(`Iceberg commit: ${fmt.format(items.length)} olay yeni snapshot'ta (batch işler artık görebilir)`);
+        byId.iceberg.commits = (byId.iceberg.commits || 0) + 1;
+        if (byId.iceberg.commits % 3 === 0) cleanRoomJob(false);
+      },
+      ledger(items, manual) {
+        const sum = items.reduce((s, x) => s + (x.amount || 0), 0);
+        if (!items.length) { if (manual) log('Saat kapanışı: bekleyen harcama yok', 'money'); return; }
+        stats.revenue += sum; stats.take += sum * TAKE_RATE;
+        log(`Saat kapanışı: ${fmt.format(items.length)} kayıt, ${money(sum)} deftere işlendi · yayıncı ${money(sum * (1 - TAKE_RATE))}, platform ${money(sum * TAKE_RATE)}`, (manual ? 'tr ' : '') + 'money');
+        const o = { traced: manual };
+        send('ledger', 'pubpanel', 'money', { ...o, part: 'payout' }); send('ledger', 'advpanel', 'money', { ...o, part: 'billing' });
+      }
+    };
+
+    function drainStore(n, force = false) {
+      const take = force ? n.queue.length : Math.min(n.batch, n.queue.length);
+      const items = n.queue.splice(0, take);
+      // pipeline depolarda (ClickHouse, Iceberg, defter) boşaltma iç adımlardan geçer; Kafka'da sinyal topic'ten Flink'e gider
+      if (items.length || force) fire(n.id, items.length > 5 ? 1.2 : 0.6, undefined, force, DETAILS[n.id]?.layout === 'pipeline');
+      DRAIN[n.id]?.(items, force);
+    }
+
+    async function cleanRoomJob(tr) {
+      const g = sim.gen;
+      const o = { traced: tr };
+      tlog(tr, 'Clean room: maruz kalma verisi Iceberg\'den, partner CRM verisi şifreli yüklemeden gelir', '');
+      if (!tr) log('Clean room işi başladı (TEE içinde eşleştirme)');
+      await send('iceberg', 'cleanroom', 'dcr', o);
+      if (g !== sim.gen) return;
+      tlog(tr, 'TEE içinde hash join: hiçbir taraf diğerinin eşleşmeyen kaydını görmez');
+      fire('cleanroom', 1); await wait(1.2); fire('cleanroom', 1);
+      if (g !== sim.gen) return;
+      tlog(tr, 'Eşik (k ≥ 1000) ve DP gürültüsü uygulandı → opak segment üretildi (exportable = false)');
+      await send('cleanroom', 'segment', 'dcr', { ...o, part: 'opaque' });
+      await send('segment', 'profile', 'seg', { ...o, part: 'seg' });
+      tlog(tr, 'Opak segment profil deposunda: yalnızca bizim ad server ve DSP\'de hedeflenebilir');
+      if (!tr) log('Clean room: opak segment profillere yazıldı');
+    }
+
+    // ------------------------------------------------------------------
+    // 5. Döngü
+    // ------------------------------------------------------------------
+    const clock = new THREE.Clock();
+    const tmpM = new THREE.Matrix4(), tmpV = new THREE.Vector3(), white = new THREE.Color('#ffffff');
+    let uiAcc = 0;
+
+    function step(dt) {
+      sim.t += dt;
+      // zamanlayıcılar
+      if (timers.length) {
+        const due = timers.filter((x) => x.at <= sim.t);
+        if (due.length) { timers = timers.filter((x) => x.at > sim.t); for (const x of due) x.g === sim.gen ? x.res() : null; }
+      }
+      // arka plan trafiği
+      if (packets.length < MAX_PACKETS) {
+        sim.reqAcc += dt * sim.rate; sim.evAcc += dt * sim.rate * 1.4;
+        while (sim.reqAcc >= 1) { sim.reqAcc -= 1; adRequest(false); }
+        while (sim.evAcc >= 1) { sim.evAcc -= 1; collectEvent(false); }
+      }
+      // kayıt yerleri
+      for (const n of NODES) {
+        if (n.kind !== 'queue') continue;
+        n.acc += dt;
+        if (n.acc >= n.every) { n.acc = 0; if (n.queue.length) drainStore(n); }
+      }
+      // paketler
+      for (let i = packets.length - 1; i >= 0; i--) {
+        const p = packets[i];
+        p.t += dt / p.dur;
+        const done = p.fail ? p.t >= 0.62 : p.t >= 1;
+        if (done || p.g !== sim.gen) {
+          release(p.s); if (p.ring) release(p.ring);
+          packets.splice(i, 1);
+          if (p.g === sim.gen) { if (!p.fail) fire(p.to, p.traced ? 1 : 0.55, p.part, p.traced); p.res(!p.fail); }
+        }
+      }
+      // iç sinyaller (alt bileşenler arasında)
+      for (let i = inner.length - 1; i >= 0; i--) {
+        const q = inner[i];
+        if (q.g !== sim.gen || !q.n.expanded) { release(q.s); inner.splice(i, 1); continue; }
+        const a = q.path[q.seg], b = q.path[q.seg + 1];
+        const L = Math.max(0.5, partLocal(q.n, a, tmpA).distanceTo(partLocal(q.n, b, tmpB)));
+        q.t += (dt * 14) / L;
+        if (q.t >= 1) {
+          q.t = 0; q.seg++;
+          if (b) b.flash = 1.2;
+          if (q.seg >= q.path.length - 1) { release(q.s); inner.splice(i, 1); }
+        }
+      }
+    }
+
+    function draw(realDt) {
+      const tracingNow = sim.focus && packets.some((p) => p.traced);
+      for (const p of packets) {
+        const u = Math.min(1, p.rev ? 1 - p.t : p.t);
+        p.e.curve.getPoint(u, p.s.position);
+        let a = 1;
+        if (p.fail) a = Math.max(0, 1 - Math.max(0, p.t - 0.35) / 0.27);
+        if (tracingNow && !p.traced) a *= 0.28;
+        p.s.material.opacity = a;
+        p.s.scale.setScalar(p.size * (p.fail ? 1 + p.t : 1));
+        if (p.ring) { p.ring.position.copy(p.s.position); p.ring.scale.setScalar(p.size * 1.7); p.ring.material.opacity = 0.9 * a; }
+      }
+      const k = Math.exp(-realDt * 2.6);
+      for (const e of edges) {
+        e.glow *= k;
+        e.mat.opacity = (tracingNow ? 0.08 : 0.17) + e.glow * 0.55 + e.hl * 0.5;
+      }
+      const now = performance.now() / 1000;
+      for (const n of NODES) {
+        n.flash *= Math.exp(-realDt * 4);
+        n.load *= Math.exp(-realDt * 0.8);
+        const f = n.flash;
+        if (n.mesh) {
+          n.mat.emissiveIntensity = 0.5 + f * 2.2;
+          n.mesh.scale.setScalar(n.r * (1 + f * 0.22));
+        } else {
+          n.mat.emissiveIntensity = 0.25 + f * 1.2;
+          n.rimMat.emissiveIntensity = 1 + f * 2;
+          const ratio = n.kind === 'queue' ? Math.min(1, n.queue.length / n.cap) : n.load;
+          n.fill.scale.y += ((Math.max(0.001, ratio * n.h)) - n.fill.scale.y) * Math.min(1, realDt * 6);
+          if (n.dots) {
+            const c = Math.min(90, n.queue.length);
+            n.dots.count = c;
+            for (let i = 0; i < c; i++) {
+              const ang = i * 2.4 + now * 0.6, rr = n.r * (0.35 + 0.45 * ((i * 37) % 10) / 10);
+              const y = -n.h / 2 + 0.25 + (i / 90) * (n.h - 0.5);
+              tmpM.makeTranslation(Math.cos(ang) * rr, y, Math.sin(ang) * rr); n.dots.setMatrixAt(i, tmpM);
+            }
+            n.dots.instanceMatrix.needsUpdate = true;
+          }
+        }
+        n.halo.material.opacity = 0.16 + f * 0.45;
+        if (n.labelEl) n.labelEl.classList.toggle('dim', tracingNow && f < 0.08);
+      }
+      for (const q of inner) {
+        partLocal(q.n, q.path[q.seg], tmpA); partLocal(q.n, q.path[q.seg + 1], tmpB);
+        q.s.position.lerpVectors(tmpA, tmpB, q.t); q.s.scale.setScalar(q.size); q.s.material.opacity = 1;
+      }
+      for (const n of NODES) {
+        if (!n.partsGroup) continue;
+        n.ex += ((n.expanded ? 1 : 0) - n.ex) * Math.min(1, realDt * 5);
+        const vis = n.expanded || n.ex > 0.02;
+        n.partsGroup.visible = vis;
+        n.partsGroup.scale.setScalar(Math.max(0.001, n.ex));
+        for (const p of n.parts) {
+          p.flash *= Math.exp(-realDt * 4);
+          p.mat.emissiveIntensity = 0.45 + p.flash * 2.2;
+          p.mesh.scale.setScalar(1 + p.flash * 0.3);
+          p.lab.visible = vis && n.ex > 0.6;
+        }
+      }
+      const ex = byId.exchange;
+      ex.ring.material.opacity = 0.12 + Math.min(0.8, ex.auctions * 0.14);
+      ex.ring.rotation.z += realDt * (0.4 + ex.auctions * 0.25) * (sim.paused ? 0 : sim.speed);
+    }
+
+    // info kartındaki canlı sayaç ve panel
+    function updateUI() {
+      $('sReq').textContent = fmt.format(stats.req);
+      $('sCpm').textContent = stats.wins ? fmt1.format(stats.cpmSum / stats.wins) + ' ₺' : '—';
+      $('sTimeout').textContent = fmt.format(stats.timeouts);
+      $('sIvt').textContent = fmt.format(stats.ivt);
+      $('sRev').textContent = money(stats.revenue);
+      $('sTake').textContent = money(stats.take);
+      $('miniReq').textContent = fmt.format(stats.req);
+      $('miniKafka').textContent = fmt.format(byId.kafka.queue.length);
+      $('miniRev').textContent = money(stats.revenue);
+      for (const n of NODES) {
+        if (n.kind !== 'queue') continue;
+        n.qcEl.textContent = n.queue.length ? fmt.format(n.queue.length) + ' bekliyor' : '';
+        const row = queueRows[n.id];
+        row.v.textContent = fmt.format(n.queue.length);
+        row.bar.style.width = Math.min(100, (n.queue.length / n.cap) * 100) + '%';
+        row.next.textContent = n.every >= 5 ? `sonraki ${n.id === 'ledger' ? 'saat kapanışı' : 'commit'}: ${fmt1.format(Math.max(0, n.every - n.acc))} sn` : `tüketim: ${fmt.format(Math.round(n.batch / n.every))} kayıt/sn`;
+      }
+      if (openNode) renderInfoLive(openNode);
+    }
+
+    function frame() {
+      const realDt = Math.min(0.05, clock.getDelta());
+      if (!sim.paused) step(realDt * sim.speed);
+      draw(realDt);
+      controls.update();
+      if (useBloom) composer.render(); else renderer.render(scene, camera);
+      labelRenderer.render(scene, camera);
+      uiAcc += realDt; if (uiAcc > 0.25) { uiAcc = 0; updateUI(); }
+      requestAnimationFrame(frame);
+    }
+
+    // ------------------------------------------------------------------
+    // 6. Arayüz
+    // ------------------------------------------------------------------
+    const queueRows = {};
+    {
+      const qwrap = $('queues');
+      for (const n of NODES.filter((x) => x.kind === 'queue')) {
+        const d = document.createElement('div'); d.className = 'q';
+        d.innerHTML = `<span class="qn"></span><span class="qv">0</span><span class="bar"><i></i></span><small></small>`;
+        d.querySelector('.qn').textContent = n.label;
+        d.querySelector('.bar i').style.background = GROUPS[n.g].c;
+        qwrap.append(d);
+        queueRows[n.id] = { v: d.querySelector('.qv'), bar: d.querySelector('.bar i'), next: d.querySelector('small') };
+      }
+      const lg = $('legend');
+      for (const l of Object.values(LINES)) {
+        const s = document.createElement('span'); const i = document.createElement('i'); i.style.background = l.c;
+        s.append(i, document.createTextNode(l.name)); lg.append(s);
+      }
+      for (const [cls, t] of [['', 'Servis (küre)'], ['store', 'Kayıt yeri (silindir)']]) {
+        const s = document.createElement('span'); const i = document.createElement('i'); i.className = 'shape ' + cls;
+        s.append(i, document.createTextNode(t)); lg.append(s);
+      }
+    }
+
+    const playBtn = $('playBtn');
+    function setPaused(p) { sim.paused = p; playBtn.textContent = p ? 'Oynat' : 'Duraklat'; playBtn.setAttribute('aria-pressed', String(p)); }
+    playBtn.onclick = () => setPaused(!sim.paused);
+
+    $('speedSeg').addEventListener('click', (ev) => {
+      const b = ev.target.closest('button[data-speed]'); if (!b) return;
+      sim.speed = +b.dataset.speed;
+      for (const x of $('speedSeg').children) x.setAttribute('aria-pressed', String(x === b));
+    });
+    const rate = $('rate');
+    rate.oninput = () => { sim.rate = +rate.value; $('rateOut').textContent = fmt1.format(sim.rate) + ' istek/sn'; };
+
+    $('resetBtn').onclick = () => {
+      sim.gen++; timers = []; sim.t = 0; sim.reqAcc = sim.evAcc = 0;
+      for (const p of packets) { release(p.s); if (p.ring) release(p.ring); }
+      packets.length = 0;
+      for (const q of inner) release(q.s);
+      inner.length = 0;
+      for (const n of NODES) { n.queue.length = 0; n.acc = 0; n.flash = 0; n.load = 0; }
+      byId.exchange.auctions = 0; byId.iceberg.commits = 0;
+      Object.keys(stats).forEach((k) => (stats[k] = 0));
+      logEl.replaceChildren(); log('Simülasyon sıfırlandı');
+    };
+
+    $('tLabels').onchange = (e) => document.body.classList.toggle('no-labels', !e.target.checked);
+    // telefonda etiketler ağı kapatır: varsayılan kapalı, dokunulan düğümün etiketi yine görünür
+    if (innerWidth < 760) { $('tLabels').checked = false; document.body.classList.add('no-labels'); }
+    $('tBloom').onchange = (e) => { useBloom = e.target.checked; };
+    $('tRotate').checked = controls.autoRotate;
+    $('tRotate').onchange = (e) => { controls.autoRotate = e.target.checked; };
+    $('tFocus').onchange = (e) => { sim.focus = e.target.checked; };
+    controls.addEventListener('start', () => { if (controls.autoRotate) { controls.autoRotate = false; $('tRotate').checked = false; } });
+
+    const SCN = {
+      ad: () => { log('Senaryo: tek reklam isteği izleniyor', 'tr'); adRequest(true); },
+      event: () => { log('Senaryo: ziyaretçi olayı izleniyor', 'tr'); collectEvent(true); },
+      hour: () => { log('Senaryo: saat kapanışı tetiklendi', 'tr'); const n = byId.ledger; n.acc = 0; drainStore(n, true); },
+      dcr: () => { log('Senaryo: clean room işi izleniyor', 'tr'); cleanRoomJob(true); }
+    };
+    document.querySelectorAll('[data-scn]').forEach((b) => (b.onclick = () => { if (sim.paused) setPaused(false); SCN[b.dataset.scn](); }));
+
+    // telefon tabakası
+    const panel = $('panel'), handle = $('sheetHandle');
+    handle.onclick = () => { const o = !panel.classList.contains('open'); panel.classList.toggle('open', o); handle.setAttribute('aria-expanded', String(o)); };
+
+    // yardım
+    const help = $('help');
+    const openHelp = () => { help.hidden = false; $('helpClose').focus(); };
+    $('helpBtn').onclick = openHelp;
+    $('helpClose').onclick = () => { help.hidden = true; try { localStorage.setItem('sim3d-help', '1'); } catch {} };
+    help.addEventListener('click', (e) => { if (e.target === help) $('helpClose').click(); });
+    let seen = false; try { seen = localStorage.getItem('sim3d-help') === '1'; } catch {}
+    if (!seen) openHelp();
+
+    // --- düğüm seçimi ---
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+    let downAt = null, openNode = null, hoverNode = null;
+    // Tıklanan nesne: { node } ya da { part } (açık iç yapının alt bileşeni)
+    function pickAt(ev) {
+      const r = renderer.domElement.getBoundingClientRect();
+      ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+      ray.setFromCamera(ndc, camera);
+      for (const hit of ray.intersectObjects(pickables, false)) {
+        const ud = hit.object.userData;
+        if (ud.part) { if (ud.part.node.ex > 0.6) return { part: ud.part }; continue; } // kapalı iç yapı tıklanamaz
+        return { node: ud.node };
+      }
+      return null;
+    }
+    function highlight(n) {
+      for (const e of edges) e.hl = n && (e.a === n.id || e.b === n.id) ? 1 : 0;
+    }
+    renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 6) return;
+      const h = pickAt(e);
+      if (h?.part) openPart(h.part); else if (h?.node) openInfo(h.node); else closeInfo();
+    });
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      if (e.pointerType !== 'mouse' || e.buttons) return;
+      const h = pickAt(e);
+      const n = h ? h.node || h.part.node : null;
+      renderer.domElement.style.cursor = h ? 'pointer' : '';
+      if (n !== hoverNode) { hoverNode = n; highlight(n || openNode); }
+    });
+
+    const flyTo = { active: false, from: new THREE.Vector3(), to: new THREE.Vector3(), camFrom: new THREE.Vector3(), camTo: new THREE.Vector3(), t: 0 };
+    // hedefi düğüme çevir; iç yapı açılıyorsa sığacak kadar yaklaş (uzaktaysa)
+    function focusOn(n) {
+      flyTo.from.copy(controls.target); flyTo.to.copy(n.pos);
+      flyTo.camFrom.copy(camera.position);
+      const dir = tmpA.copy(camera.position).sub(controls.target);
+      const dist = dir.length();
+      const want = n.partR ? Math.min(dist, n.partR * 4.2 + 12) : dist;
+      flyTo.camTo.copy(n.pos).add(dir.normalize().multiplyScalar(want));
+      // telefonda kart ekranın alt yarısını kaplar: düğüm ve iç yapısı üst yarıda kalsın diye hedefi aşağı kaydır
+      if (innerWidth < 760 && n.partR) {
+        const shift = tmpB.copy(camUp).multiplyScalar(-n.partR * 1.5);
+        flyTo.to.add(shift); flyTo.camTo.add(shift);
+      }
+      flyTo.t = 0; flyTo.last = 0; flyTo.active = true;
+    }
+    function setExpanded(n) {
+      for (const x of NODES) if (x !== n && x.expanded && !expandAll.on) expand(x, false);
+      expand(n, true);
+    }
+
+    const info = $('info');
+    function chips(list) {
+      const wrap = $('infoTech'); wrap.replaceChildren();
+      for (const [name, role] of list) {
+        const c = document.createElement('span'); c.className = 'chip';
+        const b = document.createElement('b'); b.textContent = name; c.append(b);
+        if (role) { const sp = document.createElement('span'); sp.textContent = role; c.append(sp); }
+        wrap.append(c);
+      }
+      $('infoTechWrap').hidden = !list.length;
+    }
+    function openInfo(n) {
+      if (openNode) openNode.labelEl.classList.remove('sel');
+      openNode = n; openPartRef = null; n.labelEl.classList.add('sel');
+      const d = DETAILS[n.id];
+      info.style.setProperty('--c', GROUPS[n.g].c);
+      $('infoBack').hidden = true;
+      $('infoGroup').textContent = GROUPS[n.g].name;
+      $('infoTitle').textContent = n.label;
+      $('infoDesc').textContent = n.desc;
+      $('infoWait').hidden = !n.wait; $('infoWait').textContent = n.wait ? 'Burada bekleyen: ' + n.wait : '';
+      chips(d ? d.tech : []);
+      const list = $('infoParts'); list.replaceChildren();
+      if (d) {
+        setExpanded(n);
+        list.className = 'parts ' + d.layout;
+        $('infoPartsTitle').textContent = `İç yapı · ${d.parts.length} bileşen`;
+        n.parts.forEach((p, i) => {
+          const li = document.createElement('li'); const b = document.createElement('button'); b.type = 'button';
+          b.innerHTML = '<span class="pn"></span><span class="pt"></span><span class="pd"></span>';
+          b.querySelector('.pn').textContent = String(i + 1);
+          b.querySelector('.pt').textContent = p.label;
+          b.querySelector('.pd').textContent = p.desc;
+          b.onclick = () => openPart(p);
+          b.onmouseenter = () => { p.flash = 1.2; };
+          li.append(b); list.append(li);
+        });
+        $('infoPartsHint').textContent = d.layout === 'pipeline'
+          ? 'Sahnede düğümün üstünde açıldı: gelen her sinyal bu adımlardan sırayla (1 → ' + d.parts.length + ') geçer.'
+          : 'Sahnede düğümün çevresinde açıldı: paralel parçalar; gelen sinyal ilgili parçaya gider.';
+      }
+      $('infoPartsWrap').hidden = !d;
+      $('infoDoc').href = DOCS + n.doc;
+      renderInfoLive(n);
+      info.hidden = false; info.scrollTop = 0;
+      highlight(n);
+      focusOn(n);
+      fire(n.id, 0.8, undefined, true);
+    }
+    let openPartRef = null;
+    function openPart(p) {
+      const n = p.node;
+      if (openNode !== n) openInfo(n);
+      openPartRef = p;
+      $('infoBack').hidden = false; $('infoBackLabel').textContent = n.label;
+      $('infoGroup').textContent = `İç yapı · ${n.label}` + (n.layout === 'pipeline' ? ` · adım ${p.idx + 1}/${n.parts.length}` : '');
+      $('infoTitle').textContent = p.label;
+      $('infoDesc').textContent = p.desc;
+      $('infoWait').hidden = true;
+      chips(p.tech ? [[p.tech, '']] : []);
+      $('infoPartsWrap').hidden = true;
+      renderInfoLive(n);
+      info.scrollTop = 0;
+      p.flash = 1.4;
+    }
+    $('infoBack').onclick = () => openNode && openInfo(openNode);
+    function closeInfo() {
+      info.hidden = true;
+      if (openNode) { openNode.labelEl.classList.remove('sel'); if (!expandAll.on) expand(openNode, false); }
+      openNode = null; openPartRef = null; highlight(hoverNode);
+    }
+    $('infoClose').onclick = closeInfo;
+    function renderInfoLive(n) {
+      const links = edges.filter((e) => e.a === n.id || e.b === n.id).length;
+      let s = `${links} bağlantı`;
+      if (n.kind === 'queue') s += ` · ${fmt.format(n.queue.length)} kayıt bekliyor`;
+      if (n.id === 'exchange') s += ` · ${fmt.format(n.auctions)} açık artırma sürüyor`;
+      $('infoLive').textContent = s;
+    }
+    $('tParts').onchange = (e) => {
+      expandAll.on = e.target.checked;
+      for (const n of NODES) if (DETAILS[n.id]) expand(n, expandAll.on || n === openNode);
+    };
+    // kamerayı seçilen düğüme yumuşakça çevir
+    const baseUpdate = controls.update.bind(controls);
+    controls.update = () => {
+      if (flyTo.active) {
+        // zamana bağlı (kare hızından bağımsız) ≈ 0,9 sn'lik geçiş
+        const now = performance.now(); const d = Math.min(0.1, (now - (flyTo.last || now)) / 1000); flyTo.last = now;
+        flyTo.t = Math.min(1, flyTo.t + d * 1.1);
+        const e = 1 - Math.pow(1 - flyTo.t, 3);
+        controls.target.lerpVectors(flyTo.from, flyTo.to, e);
+        camera.position.lerpVectors(flyTo.camFrom, flyTo.camTo, e);
+        if (flyTo.t >= 1) flyTo.active = false;
+      }
+      return baseUpdate();
+    };
+    controls.addEventListener('start', () => { flyTo.active = false; });
+
+    addEventListener('keydown', (e) => {
+      if (e.target.closest('input, select, textarea')) return;
+      if (e.key === ' ') { e.preventDefault(); setPaused(!sim.paused); }
+      else if (e.key === 'Escape') { if (!help.hidden) $('helpClose').click(); else closeInfo(); }
+      else if (e.key === 'l' || e.key === 'L') { const t = $('tLabels'); t.checked = !t.checked; t.onchange({ target: t }); }
+      else if ('1234'.includes(e.key) && e.key.length === 1) { const k = ['ad', 'event', 'hour', 'dcr'][+e.key - 1]; if (sim.paused) setPaused(false); SCN[k](); }
+    });
+
+    if (reduceMotion) { sim.speed = 0.5; for (const x of $('speedSeg').children) x.setAttribute('aria-pressed', String(x.dataset.speed === '0.5')); }
+    // konsoldan inceleme ve otomatik test için (ör. SIM3D.step(0.02) ile ileri sarma)
+    window.SIM3D = { sim, stats, step, byId, packets, inner, scenario: SCN, select: (id) => openInfo(byId[id]) };
+    log('Simülasyon başladı · arka plan trafiği akıyor');
+    frame();
+  </script>
+</body>
+</html>
