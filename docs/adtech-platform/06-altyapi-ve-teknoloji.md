@@ -20,7 +20,9 @@
 | Orkestrasyon | **Dagster / Airflow** | — | Batch DAG'ler |
 | Kontrol düzlemi DB | **PostgreSQL** | — | İlişkisel, CDC (Debezium) |
 | ML | **LightGBM, PyTorch, ONNX Runtime, Feast, MLflow** | — | Model ad server içine ONNX olarak gömülür |
-| Vektör / ANN | **FAISS / ScaNN** (batch), **Qdrant** (online) | — | Lookalike |
+| Vektör / ANN | **FAISS / ScaNN** (batch), **Qdrant** (online) | — | Lookalike, benzer ürün |
+| Kontekstüel sınıflandırma | **Zemberek** (kök bulma) + **Türkçe / çok dilli encoder** (ör. BERTurk, multilingual-e5), Go tarayıcı | Hazır kontekstüel API | Türkçe eklemeli yapı; URL başına bir kez, önbellekli |
+| Kreatif optimizasyonu | **Thompson sampling** (ad server içinde) | — | İstek başına bellekte, ucuz |
 | Sketch | **Apache DataSketches** | — | Erişim / örtüşme tahmini |
 | DP | **OpenDP / Google DP kütüphanesi** | Tumult Analytics | Clean room gürültüsü |
 | Gizli hesaplama | **AMD SEV-SNP / Intel TDX gizli VM'ler** | — | Clean room |
@@ -97,7 +99,7 @@ flowchart TB
 | Adım | Hedef p99 |
 |------|-----------|
 | TLS sonlandırma + LB | 2 ms |
-| İstek parse + doğrulama + rıza kontrolü | 0.5 ms |
+| İstek parse + doğrulama + rıza dizesini bit maskesine çözme (tek sefer) | 0.5 ms |
 | GeoIP + UA parse (bellek içi) | 0.3 ms |
 | `idmap` → `profile` okuma (Aerospike, sıralı: profil anahtarı `person_id`'ye bağlı) | 2 ms (2 × ~1 ms) |
 | Targeting index aday çekme | 1 ms |

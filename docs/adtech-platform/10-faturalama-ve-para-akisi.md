@@ -28,7 +28,7 @@ flowchart LR
 
 1. Reklamveren ön ödeme yapar ya da kredi limiti tanımlanır.
 2. Her faturalanabilir olayda ([5.5 notu](05-veri-modeli.md#55-clickhouse-raporlama-tabloları)) harcama oluşur; Flink sayaçları saatlik olarak deftere işlenir.
-3. Harcama yayıncı payı, platform komisyonu ve vergiye bölünür.
+3. Deftere yalnızca **platformdan geçen para** yazılır ve satış türüne göre ayrılır ([10.4](#104-komisyon-ve-gelir-paylaşımı)). Exchange / RTB ve kendi DSP'miz üzerinden satılan gösterimde harcama yayıncı payı, platform komisyonu ve vergiye bölünür. Yayıncının kendi doğrudan kampanyasında para yayıncı ile reklamveren arasında kalır; deftere yalnızca ad serving ücreti yazılır. Prebid ile başka bir SSP'nin kazandığı gösterimde para o SSP üzerinden akar; deftere bir şey yazılmaz.
 4. Sonradan sahte trafik olarak işaretlenen tutar reklamverene iade edilir ve yayıncı hakedişinden düşülür.
 5. Ay sonunda yayıncı hakedişi ödenir, reklamverene fatura kesilir.
 
@@ -62,7 +62,9 @@ flowchart LR
 | Exchange / RTB (bizim DSP) | Reklamverenin DSP fiyatı (DSP ücreti dahil) | Kazanan fiyat × (1 − take rate) | Exchange take rate + DSP ücreti |
 | Doğrudan satış (yayıncının kendi kampanyası) | Yayıncıya ödenir, platformdan geçmez | — | Ad server lisans / kullanım ücreti (CPM başına) |
 | Ağ üzerinden doğrudan / PG deal | Deal fiyatı | Sözleşmedeki pay | Sözleşmedeki pay |
+| Yayıncı segmentiyle hedefleme (veri ücreti) | Medya fiyatı + veri ücreti (CPM başına) | Medya payı + veri ücreti × (1 − platform payı) | Veri ücretinin platform payı |
 
+- Her faturalanabilir olay `sale_channel` taşır (`exchange`, `own_dsp`, `direct`, `prebid_external`); defter işi bu alana göre tablodaki satırlardan birini uygular. `direct` ve `prebid_external` için gelir paylaşımı hesaplanmaz. Yayıncı segmentiyle hedeflenen gösterim ayrıca `data_fee_micros` ve segment sahibini taşır; veri ücreti ayrı bir `data_fee` kaydıyla segment sahibinin hakedişine yazılır.
 - Take rate oranı yayıncı ve satış türü bazında sözleşmede tanımlanır. Her açık artırma kaydında o anki oran saklanır (`rtb.auctions`); oran sonradan değişse de geçmiş hesap değişmez.
 - Fiyatlama modelleri: CPM, vCPM, CPCV, CPC, CPA ve sabit fiyatlı (sponsorship / flat) anlaşmalar. Sabit fiyatlı anlaşmalarda harcama teslimat oranına göre günlük tahakkuk edilir.
 
@@ -71,7 +73,7 @@ flowchart LR
 - Gösterim sonrası IVT tespiti ([2.6](02-ad-server.md#26-ivt-geçersiz-trafik-ve-marka-güvenliği)) olayın üzerinden **en fazla 30 gün** içinde yapılabilir. Bu süre boyunca yayıncı payının ilgili kısmı `ivt_reserve` hesabında bekletilebilir (sözleşmeye bağlı).
 - İade, orijinal harcamanın ters kaydıdır: reklamveren bakiyesi artar, yayıncı hakedişi ve platform geliri aynı oranda azalır.
 - Hakediş ödendikten sonra tespit edilen IVT, bir sonraki ayın hakedişinden mahsup edilir.
-- Raporlar iade sonrası rakamları gösterir; reklamveren ve yayıncı panelinde "IVT düzeltmesi" ayrı satır olarak görünür.
+- Raporlar iade sonrası rakamları gösterir; reklamveren ve yayıncı panelinde "IVT düzeltmesi" ayrı satır olarak görünür. Bunun için Flink ClickHouse'a negatif bir düzeltme satırı yazar ([5.5](05-veri-modeli.md#55-clickhouse-raporlama-tabloları)); defter ve raporlar aynı iadeyi gösterdiği için mutabakat bozulmaz.
 
 ## 10.6 Çok Para Birimi
 
@@ -119,7 +121,7 @@ CREATE TABLE ledger_entries (
     account_id      BIGINT      NOT NULL REFERENCES billing_accounts(id),
     amount_micros   BIGINT      NOT NULL,       -- + borç / − alacak
     kind            TEXT        NOT NULL CHECK (kind IN
-                    ('payment','spend','revenue_share','ivt_refund','payout','tax','fx','reversal')),
+                    ('payment','spend','revenue_share','data_fee','ivt_refund','payout','tax','fx','reversal')),
     reference       TEXT,                       -- campaign_id:hour, invoice_id, payout_id ...
     idempotency_key TEXT        NOT NULL,
     fx_rate_id      BIGINT,

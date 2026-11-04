@@ -25,6 +25,7 @@ gantt
     Kontrol düzlemi + Admin UI                   :f1b, 2027-01-15, 75d
     Karar motoru, targeting index, fcap (Aerospike) :f1c, 2027-02-01, 75d
     Pacing, tracking, GIVT filtresi, raporlama   :f1d, 2027-03-01, 75d
+    Kontekstüel servis + kreatif optimizasyonu   :f1e, 2027-02-15, 75d
 
     section Faz 2 - Exchange ve RTB
     Ad Exchange + OpenRTB 2.6 (harici DSP'ler)   :f2a, 2027-05-15, 120d
@@ -37,6 +38,7 @@ gantt
     Yayıncı onboarding + yayıncı paneli          :f3b, 2027-11-01, 90d
     Faturalama, ödeme, hakediş, mutabakat        :f3c, 2027-11-01, 120d
     Video (VAST 4, OMID), ML (pCTR, bid shading, SIVT) :f3d, 2027-12-01, 120d
+    Ürün kataloğu, dinamik kreatif, atıflama     :f3e, 2027-12-15, 120d
 
     section Faz 4 - Global ve Clean Room
     Çok dil, çok para birimi, GDPR               :f4a, 2028-04-01, 120d
@@ -59,12 +61,14 @@ gantt
 - Aerospike kümesi bu fazda kurulur: fcap sayaçları profil kaydının `fcap` alanında, anahtar olarak henüz identity graph olmadığı için doğrudan 1P cookie / MAID (`{tenant_id}:{id_type}:{id_value}`) kullanılır. Faz 2'de `person_id`'ye geçişte sayaçlar merge sırasında taşınır.
 - Display kreatifler, imzalı tracking, dedup, GIVT filtresi (bot listesi, veri merkezi IP).
 - Saatlik raporlama (ClickHouse), "neden bu reklam" debug aracı.
+- **Kontekstüel servis** (Türkçe sınıflandırma, marka güvenliği, URL önbelleği): rızasız trafik ilk günden var, pilotun gelirini bu belirler ([2.10](02-ad-server.md#210-kontekstüel-hedefleme)).
+- Kreatif optimizasyonu (Thompson sampling).
 - **Çıktı:** Doğrudan satış kampanyaları kendi sitelerimizde canlı trafikte teslim ediliyor.
 
 ### Faz 2 — Exchange ve RTB (≈ 4–6 ay)
 - Ad Exchange: ön filtre, traffic shaping, birinci fiyat açık artırma, `nurl` / `burl` / `lurl`, komisyon kaydı ([9.3](09-exchange-ve-dsp.md#93-ad-exchange)).
 - OpenRTB 2.6 ile harici DSP'lerin bağlanması ([9.5](09-exchange-ve-dsp.md#95-openrtb-entegrasyon-sözleşmesi-harici-dspler)); Prebid.js / Prebid Server ile header bidding.
-- PMP / PG deal'ler, dinamik floor, ads.txt / sellers.json / schain.
+- PMP / PG deal'ler, dinamik floor, ads.txt / sellers.json / schain; pViewable modeli (vCPM ve dinamik floor için).
 - **DMP ilk sürüm:** Identity graph (deterministik), `idmap`, profil kaydının tamamı (segment, attrs, consent); fcap anahtarlarının `person_id`'ye taşınması; gerçek zamanlı + batch segment motoru, Theta sketch ile erişim tahmini; segmentlerin teklif isteğine eklenmesi.
 - **Çıktı:** Programatik gelir; 1P kitle hedefleme ve birleşik açık artırma.
 
@@ -75,6 +79,9 @@ gantt
 - **Video:** VAST 4.x, OM SDK ile görünürlük ölçümü.
 - **ML ve kalite:** pCTR / pCVR modelleri, garantili teslimat için allocation plan, envanter forecast, SIVT ML modeli, yayıncı kalite puanı, marka güvenliği entegrasyonları.
 - Dış aktivasyon: DSP segment push, Meta / Google hashed kitleler.
+- Ürün kataloğu ve dinamik kreatif, atıflama modeli ([9.4.8–9.4.9](09-exchange-ve-dsp.md#948-ürün-kataloğu-ve-dinamik-kreatif)).
+- Segment pazar yeri ve veri ücreti ([10.4](10-faturalama-ve-para-akisi.md#104-komisyon-ve-gelir-paylaşımı)).
+- Sürekli holdout ve artımlılık raporu; yeterli veri birikince uplift modeli ([9.4.10](09-exchange-ve-dsp.md#9410-artımlılık-ve-uplift)). Erişim ve frekans planlama.
 - **Çıktı:** İki taraflı pazar yeri: dış yayıncılar ve self-servis reklamverenler.
 
 ### Faz 4 — Global ve Clean Room (≈ 6+ ay)
@@ -83,7 +90,7 @@ gantt
 - **Çıktı:** Yurt dışı pazar ve reklamverenlerle gizlilik korumalı veri işbirliği.
 
 ## 8.3 Bilinçli Olarak Ertelenenler
-- Olasılıksal kimlik eşleştirme (Faz 4 sonrası, rıza ve tenant politikasına bağlı)
+- Olasılıksal kimlik eşleştirme ve fingerprinting: ertelenmedi, **kapsam dışı** ([3.3](03-dmp.md#33-kimlik-çözümleme-identity-resolution))
 - CTV / SSAI (Faz 4 sonrası)
 - Self-servis reklamveren paneli Faz 3'e kadar yok (Faz 1–2: yalnızca operasyon ekibi)
 - Çok para birimi: Faz 1–2'de TRY + USD (günlük TCMB kuru); EUR ve tam çok para birimi defteri Faz 3–4

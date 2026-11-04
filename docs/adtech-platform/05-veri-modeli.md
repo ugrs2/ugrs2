@@ -458,6 +458,7 @@ CREATE TABLE ads.ad_events ON CLUSTER main
     price_micros    Int64,
     value_micros    Int64,
     is_ivt          UInt8,
+    is_correction   UInt8 DEFAULT 0,          -- sonradan IVT düzeltme satırı (negatif tutar / sayaç)
     segments        Array(UInt64)
 )
 ENGINE = ReplicatedMergeTree
@@ -477,10 +478,10 @@ CREATE TABLE ads.ad_stats_hourly ON CLUSTER main
     ad_unit_id      UInt64,
     country         LowCardinality(FixedString(2)),
     device_type     LowCardinality(String),
-    impressions     AggregateFunction(sum, UInt64),
-    viewables       AggregateFunction(sum, UInt64),
-    clicks          AggregateFunction(sum, UInt64),
-    conversions     AggregateFunction(sum, UInt64),
+    impressions     AggregateFunction(sum, Int64),   -- Int64: düzeltme satırları negatif ekler
+    viewables       AggregateFunction(sum, Int64),
+    clicks          AggregateFunction(sum, Int64),
+    conversions     AggregateFunction(sum, Int64),
     revenue_micros  AggregateFunction(sum, Int64),
     reach           AggregateFunction(uniqCombined64, UUID)
 )
@@ -494,18 +495,20 @@ TO ads.ad_stats_hourly AS
 SELECT
     toStartOfHour(event_time)                         AS hour,
     tenant_id, campaign_id, line_item_id, creative_id, ad_unit_id, country, device_type,
-    sumState(toUInt64(event_type = 'impression'))     AS impressions,
-    sumState(toUInt64(event_type = 'viewable'))       AS viewables,
-    sumState(toUInt64(event_type = 'click'))          AS clicks,
-    sumState(toUInt64(event_type = 'conversion'))     AS conversions,
+    sumState(toInt64(event_type = 'impression') * if(is_correction, -1, 1)) AS impressions,
+    sumState(toInt64(event_type = 'viewable')   * if(is_correction, -1, 1)) AS viewables,
+    sumState(toInt64(event_type = 'click')      * if(is_correction, -1, 1)) AS clicks,
+    sumState(toInt64(event_type = 'conversion') * if(is_correction, -1, 1)) AS conversions,
     sumState(if(event_type IN ('request', 'decision'), 0, price_micros)) AS revenue_micros,  -- karar fiyatı gelir değildir; nota bkz.
-    uniqCombined64StateIf(person_id, event_type = 'impression') AS reach
+    uniqCombined64StateIf(person_id, event_type = 'impression' AND is_correction = 0) AS reach  -- tekil erişim düzeltilemez (yaklaşık)
 FROM ads.ad_events
 WHERE is_ivt = 0
 GROUP BY hour, tenant_id, campaign_id, line_item_id, creative_id, ad_unit_id, country, device_type;
 ```
 
 > Not: `price_micros` yalnızca **faturalanan olayda** doludur, diğer olaylarda 0'dır; böylece gelir çift sayılmaz. Faturalanan olay fiyatlama modeline göre belirlenir: CPM → "impression", vCPM → "viewable", CPCV → "complete", CPC → "click", CPA → "conversion". Fiyat Flink'te olay başına tutara çevrilmiş olarak yazılır (ör. CPM / 1000).
+
+> **Sonradan bulunan IVT:** Materialized view IVT'yi yalnızca ekleme anında (`is_ivt = 0`) süzer. Gösterim sonrası IVT tespiti (30 güne kadar) geldiğinde Flink, ilgili olay için `ads.ad_events`'e aynı `event_type` ve **negatif** `price_micros` ile bir düzeltme satırı yazar (`is_ivt = 0`, `is_correction = 1`); saatlik agrega böylece kendiliğinden düşer ve defterdeki iade kaydıyla ([10.5](10-faturalama-ve-para-akisi.md#105-sahte-trafik-iadesi)) tutarlı kalır. Sayaçlar da (`impressions`, `clicks` …) `if(is_correction, -1, 1)` ile toplanır; bu yüzden agrega kolonları `Int64`tür. Tekil erişim (sketch) geri alınamaz, düzeltmeden sonra yaklaşık kalır. Ham satır güncellenmez; düzeltme her zaman yeni satırdır.
 
 ## 5.6 Kafka Topic Tasarımı
 
@@ -517,6 +520,7 @@ GROUP BY hour, tenant_id, campaign_id, line_item_id, creative_id, ad_unit_id, co
 | `ad.decisions` | tenant+request | 128 | 3 gün | Ad server async log |
 | `ad.events` | tenant+impression | 64 | 7 gün | Tracking |
 | `dmp.segment_changes` | tenant+person | 48 | 3 gün | Üyelik değişiklikleri |
+| `content.pages` | url_hash | 24 | 7 gün | Kontekstüel servis: taranacak ve sınıflandırılan URL'ler |
 | `identity.merges` | tenant+person | 24 | 30 gün | Person birleştirme olayları |
 | `config.adserver` | tenant | 12 | compacted | Line item snapshot/delta |
 | `control.pacing` | line_item | 12 | compacted | Throttle oranları |

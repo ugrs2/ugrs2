@@ -15,32 +15,69 @@
 | **IAB TCF 2.2 / GPP** | Rıza dizesinin okunması, taşınması ve OpenRTB `regs` / `user.consent` alanlarıyla iletilmesi |
 | **Apple ATT / Google Play politikaları** | MAID yalnızca izin varsa; SKAdNetwork / AdAttributionKit desteği |
 
-## 7.2 Rıza (Consent) Akışı
+## 7.2 Rıza (Consent): Sorumluluk ve Akış
+
+**Temel ilke: rızayı yayıncı alır, platform uygular.** Rıza yayıncının sitesinde, yayıncının CMP'si ve aydınlatma metniyle alınır. Platform rızayı toplamaz, değiştirmez ve saklamaz; gelen sinyali **edge'de bir kez çözer**, sonraki katmanlar yalnızca bu sonucu okur.
+
+### 7.2.1 Sorumluluk ayrımı
+
+| Konu | Yayıncı (site) | Platform (biz) |
+|------|----------------|----------------|
+| Rıza ekranı (KVKK banner / CMP), aydınlatma metni | Sorumlu | Kendi adımıza metin sağlar; CMP'de taraf olarak listelenir |
+| Zorunlu olmayan çerez ve etiketlerin rızadan önce çalışmaması | Sorumlu: rıza yoksa `collect.js` yüklenmez, çerez yazılmaz, reklam etiketi kimlik göndermez | — |
+| Rıza ispatı (ne zaman, hangi metin sürümü, hangi kanal) | CMP kayıtlarında tutar | Tutmaz; yalnızca olayla gelen rıza bit maskesini saklar ("sinyale uyduk" kanıtı) |
+| Rıza sinyaline uymak | — | Sorumlu: kişiselleştirme, profil, kimlik iletimi sinyale göre açılır / kapanır |
+| Silme talepleri | Talebin ilk muhatabı; bizim API'mize iletir | Talebi tüm depolarda uygular (7.3) |
+
+- **Platformun rolü:** Yalnızca yayıncının kendi reklam sunucusu olarak çalıştığımız durumda veri işleyen konumundayız. Kendi DMP ve DSP'mizle veriyi birden çok yayıncı arasında kullandığımızda kendi amacımızla da işliyoruz; bu yüzden yayıncının CMP'si platformu ayrı bir taraf (TCF'de vendor) olarak göstermeli ve rızayı bizim adımıza da almalıdır. Rol (veri sorumlusu / veri işleyen / ortak) sözleşme ve hukuk danışmanıyla netleştirilir.
+- **CMP kararı (ürün):** Türkiye ağındaki yayıncılara kendi CMP'mizi vermek bir seçenektir; bu durumda rıza kayıtlarını teknik olarak biz tutarız, ama rıza yine yayıncı adına alınmış olur. Vermezsek yayıncıdan TCF uyumlu bir CMP kullanmasını ve platformu listelemesini sözleşmede şart koşarız.
+
+### 7.2.2 Akış
 
 ```mermaid
 flowchart LR
-    CMP["CMP<br/>KVKK banner / TCF 2.2 / GPP"] --> SIG["Rıza sinyali<br/>TC string, GPP, kvkk_explicit"]
-    SIG --> COL["Collector"]
-    SIG --> AD["Ad Server"]
+    subgraph SITE["Yayıncı sitesi"]
+        CMP["CMP<br/>KVKK banner / TCF 2.2"]
+        GATE{"Rıza var mı?"}
+        TAGS["collect.js + 1P cookie<br/>kimlikli reklam etiketi"]
+        NOTAG["collect.js yüklenmez<br/>reklam etiketi kimliksiz"]
+        CMP --> GATE
+        GATE -- Evet --> TAGS
+        GATE -- Hayır --> NOTAG
+    end
 
-    COL --> C1{"Ölçüm / analitik<br/>izni var mı?"}
-    C1 -- Hayır --> DROP["Olay atılır veya<br/>kimliksiz sayım"]
-    C1 -- Evet --> C2{"Profilleme / kişiselleştirilmiş<br/>reklam izni var mı?"}
-    C2 -- Hayır --> AGG["Yalnızca agrega analitik<br/>profile yazılmaz"]
-    C2 -- Evet --> PROF["Kimlik çözümleme +<br/>profil + segment"]
+    subgraph EDGE["Edge (tek çözümleme)"]
+        PARSE["Rıza dizesi bir kez ayrıştırılır<br/>→ purposes_bitmask + kvkk_explicit<br/>dize yok / geçersiz = rıza yok"]
+    end
 
-    AD --> A1{"Kişiselleştirilmiş<br/>reklam izni?"}
-    A1 -- Hayır --> CTX["Kontekstüel reklam<br/>profil okunmaz, kimlik iletilmez"]
-    A1 -- Evet --> PERS["Profil + segment<br/>hedefleme"]
-    PERS --> V{"Vendor izni?<br/>TCF vendor listesi"}
-    V -- Evet --> BID["Bidder'a eids +<br/>user.data iletilir"]
-    V -- Hayır --> BIDN["Bidder'a kimliksiz istek"]
+    TAGS --> PARSE
+    NOTAG --> PARSE
+
+    PARSE --> FL{"Flink girişi:<br/>profilleme biti?"}
+    FL -- Evet --> PROF["Kimlik çözümleme +<br/>profil + segment"]
+    FL -- Hayır --> AGG["Yalnızca agrega analitik"]
+
+    PARSE --> AD{"Ad Server / DSP:<br/>kişiselleştirme biti?"}
+    AD -- Evet --> PERS["Profil okunur,<br/>segment hedefleme"]
+    AD -- Hayır --> CTX["Kontekstüel reklam<br/>profil okunmaz"]
+
+    PARSE --> EX{"Exchange:<br/>vendor izni?"}
+    EX -- Evet --> BID["DSP'ye eids + user.data"]
+    EX -- Hayır --> BIDN["DSP'ye kimliksiz istek"]
 ```
 
-**Kurallar:**
-- Rıza durumu her olayla birlikte taşınır (`Consent` mesajı); downstream servisler kendi kararını bu alanla verir — "rıza geldi mi?" diye merkezi servise sorulmaz.
-- Profilde son rıza durumu saklanır; rıza geri çekilirse (`consent_withdrawn` olayı) profil anında "kişiselleştirme kapalı" moduna alınır ve segment üyelikleri silinir.
-- Rıza kayıtları (ne zaman, hangi metin sürümü, hangi kanal) ispat amaçlı ayrı ve değiştirilemez şekilde saklanır.
+### 7.2.3 Uygulama kuralları (gereksiz işlem yapmamak için)
+- **Tek çözümleme:** Rıza dizesi yalnızca edge'de (Gateway / Collector) ayrıştırılır ve olay zarfındaki `Consent` mesajına bit maskesi olarak yazılır (`purposes_bitmask`, `kvkk_explicit`). Sonraki servisler dizeyi yeniden ayrıştırmaz, merkezi bir rıza servisine sormaz; yalnızca biti okur.
+- **Kapalı varsayılan:** Dize yoksa ya da geçersizse rıza yok sayılır.
+- **Karar noktaları yalnızca bunlardır:**
+  - Ad Server ve DSP: kişiselleştirme biti kapalıysa profil okunmaz (Aerospike okuması atlanır; rıza işi azaltır, artırmaz).
+  - Exchange: vendor izni yoksa harici DSP'ye giden istekten `user.eids` ve `user.data` tek bir fonksiyonla çıkarılır.
+  - Flink girişi: profilleme biti açıksa kimlik çözümleme ve profil yolu, kapalıysa yalnızca agrega.
+- **Sonraki katmanlarda yeniden kontrol yok:** Segment motoru, aktivasyon, clean room ve raporlama, Flink girişinde süzülmüş veriyle çalışır; ayrıca rıza kontrolü yapmaz.
+- **Collector'da ayrıntılı mantık yok:** Site doğru çalışıyorsa rızasız kimlikli olay gelmez. Collector yalnızca tek satırlık bir koruma uygular (gerekli bit yoksa kimlik alanlarını atar); bu, yanlış yapılandırılmış sitelere karşı ikinci savunma hattıdır.
+- **Geri çekme:** Rıza geri çekilince `collect.js` artık yüklenmediği için olayı o gönderemez. Bu yüzden CMP'nin geri çekme callback'i yayıncının sayfasından **tek seferlik ve yalnızca kimlik taşıyan** bir `consent_withdrawn` ping'i gönderir (yayıncının CMP entegrasyonunda zorunlu; tek amacı silme). Ping profili "kişiselleştirme kapalı" moduna alır ve segment üyeliklerini siler. Ping hiç gelmezse kişi 180 günlük profil TTL'iyle düşer. Periyodik yeniden kontrol yapılmaz.
+- **Fingerprint yok:** Rıza olmadan kullanıcıyı tanımak için cihaz sinyallerinden (IP, UA, ekran, yazı tipi) kimlik türetilmez; bu, rıza kuralını dolanmak olur. Cihaz sinyalleri yalnızca IVT tespitinde, istek anında kullanılır ([3.3](03-dmp.md#33-kimlik-çözümleme-identity-resolution)).
+- **TCF yalnızca gerekince:** Türkiye trafiğinde yalnızca KVKK banner'ı kullanılıyorsa vendor kararı yayıncı sözleşmesindeki statik bir ayara iner (harici DSP'ye kimlik gönder / gönderme). TCF / GPP ayrıştırması AB trafiği için devreye girer.
 
 ## 7.3 Veri Sahibi Talepleri (DSAR) — Silme Akışı
 
@@ -58,7 +95,7 @@ sequenceDiagram
     participant EXT as Aktivasyon Ortakları
     participant SUP as Suppression Listesi
 
-    U->>P: Silme talebi (email / cookie id / MAID)
+    U->>P: Silme talebi (yayıncı üzerinden API ile ya da doğrudan)
     P->>P: Kimlik doğrulama
     P->>ID: Tüm bağlı kimlikleri bul
     ID-->>P: person_id + id listesi
@@ -79,7 +116,8 @@ sequenceDiagram
     P-->>U: Yanıt (yasal süre içinde)
 ```
 
-- **Suppression listesi** sayesinde silinen kişi, eski bir cookie ile tekrar gelse bile profil yeniden oluşturulmaz.
+- **Talep kanalı:** Ziyaretçi talebini çoğunlukla yayıncıya iletir; yayıncı bunu platformun DSAR API'sine (talep no, kimlikler) gönderir. Kendi rolümüzde (çapraz yayıncı DMP / DSP) doğrudan gelen talepler de Gizlilik Portalı'ndan alınır.
+- **Suppression listesi** sayesinde silinen kişi, eski bir cookie ile tekrar gelse bile profil yeniden oluşturulmaz. Kişi silme talebinden sonra CMP'de **yeniden açık rıza** verirse (rıza zaman damgası talepten yeni) bastırma kaldırılır ve yeni bir profil başlar.
 - Her talep için tamamlanma kanıtı (hangi depo, ne zaman) saklanır.
 
 ## 7.4 Saklama Süreleri (Öneri)
@@ -93,7 +131,7 @@ sequenceDiagram
 | Segment üyeliği | Segment TTL'i (genelde 30–90 gün) | Güncellik |
 | Tam IP adresi | 7 gün | Yalnızca IVT tespiti |
 | Clean room match tablosu | Collaboration süresi + 30 gün | Sözleşme |
-| Rıza kayıtları | İlişki süresi + yasal zamanaşımı | İspat yükü |
+| Rıza bit maskesi (olayla birlikte) | Olayın saklama süresi | Sinyale uyulduğunun kanıtı; rıza ispat kayıtları yayıncının CMP'sinde tutulur (7.2.1) |
 | Faturalama verisi | Yasal (vergi) süre | Mevzuat |
 
 ## 7.5 Gizliliği Artıran Teknik Önlemler (PETs)
@@ -108,6 +146,7 @@ sequenceDiagram
 | PSI / TEE | Clean room eşleştirme |
 | Crypto-shredding | Tenant ayrılışı, collaboration bitişi |
 | Veri minimizasyonu | Bidder'lara yalnızca gerekli alanlar; yurtdışı bidder'lara kimlik gönderiminin politika ile kısıtlanması |
+| Fingerprinting yasağı | Kimlik yalnızca deterministik kaynaklardan (cookie, MAID, hashed email, PPID, UID2); cihaz sinyalleri yalnızca IVT için, kalıcı kimliğe dönüştürülmeden |
 
 ## 7.6 Cookieless Strateji
 

@@ -260,11 +260,11 @@
           <h2>Canlı sayaçlar</h2>
           <div class="stats">
             <div class="stat"><b id="sReq">0</b><span>reklam isteği</span></div>
-            <div class="stat"><b id="sCpm">—</b><span>ort. kazanan CPM</span></div>
+            <div class="stat"><b id="sCpm">—</b><span>ort. kazanan (yayıncıya net)</span></div>
             <div class="stat"><b id="sTimeout">0</b><span>DSP süre aşımı</span></div>
             <div class="stat"><b id="sIvt">0</b><span>sahte trafik engeli</span></div>
-            <div class="stat"><b id="sRev">0 ₺</b><span>deftere işlenen gelir</span></div>
-            <div class="stat"><b id="sTake">0 ₺</b><span>platform payı (%15)</span></div>
+            <div class="stat"><b id="sRev">0 ₺</b><span>platformdan geçen tutar</span></div>
+            <div class="stat"><b id="sTake">0 ₺</b><span>platform geliri</span></div>
           </div>
           <p class="note">Her reklam isteği 1.000 gösterimi temsil eder; tutarlar örnektir.</p>
         </section>
@@ -407,8 +407,11 @@
       { id: 'pubpanel',  label: 'Yayıncı paneli',        g: 'arz',    kind: 'actor',   p: [-26, 20, 6],
         desc: 'Envanter, taban fiyat kuralları, blok listeleri, getiri raporları ve aylık hakediş. Ayarlar config akışıyla ad server\'a dağıtılır.', doc: '02-ad-server.md#29-yayıncı-paneli-ve-ağa-katılım' },
 
+      { id: 'context',   label: 'Kontekstüel servis',    g: 'arz',    kind: 'kv',      p: [-21, -2, -11], r: 1.3,
+        desc: 'Sayfayı hedefler, kişiyi değil: URL başına bir kez taranıp sınıflandırılır (IAB kategorisi, anahtar kelime, marka güvenliği, embedding, eşleşen kampanyalar); istek anında tek önbellek okuması. Rızadan bağımsız, tüm trafikte çalışır.', doc: '02-ad-server.md#210-kontekstüel-hedefleme',
+        wait: 'Önbellekte olmayan URL, tarayıcı kuyruğunda (content.pages) sınıflandırılmayı bekler; o arada istekler site düzeyi kategoriyle karar verir.' },
       { id: 'exchange',  label: 'Ad Exchange · RTB',     g: 'pazar',  kind: 'service', p: [3, 8, 0], r: 1.9,
-        desc: 'Ön filtre (IVT, ads.txt, rıza) → DSP seçimi (traffic shaping) → teklif isteğini paralel dağıtır → tmax ≈ 100 ms bekler → birinci fiyat açık artırma, taban fiyat 30 ₺ CPM.', doc: '09-exchange-ve-dsp.md#93-ad-exchange',
+        desc: 'Ön filtre (ad server\'ın IVT bayrağı, önbellekteki ads.txt sonucu, vendor izni) → DSP seçimi (traffic shaping) → teklif isteğini paralel dağıtır → tmax ≈ 100 ms bekler → birinci fiyat; bidfloor 30 ₺ brüt (yayıncının 25,5 ₺ net tabanı).', doc: '09-exchange-ve-dsp.md#93-ad-exchange',
         wait: 'Açık artırma sırasında teklifler en fazla tmax (≈ 100 ms) kadar beklenir; geç kalan DSP beklenmez. Etrafındaki halka açık açık artırma sayısını gösterir.' },
 
       { id: 'dsp',       label: 'DSP (bizim)',           g: 'talep',  kind: 'service', p: [19, 16, 3], r: 1.5,
@@ -444,7 +447,7 @@
         wait: 'Olaylar, bir sonraki commit\'e (snapshot) kadar yazım tamponunda bekler; commit sonrası batch işler ve clean room görebilir.' },
       { id: 'ledger',    label: 'Defter · faturalama',   g: 'finans', kind: 'queue',   p: [29, -18, -4], r: 2.3, cap: 120, every: 12, batch: 999,
         desc: 'Çift taraflı, değiştirilemez defter: harcama, komisyon (take rate), yayıncı hakedişi ve IVT iadesi.', doc: '10-faturalama-ve-para-akisi.md#102-hesap-modeli-defter',
-        wait: 'Faturalanabilir gösterimlerin tutarı saat kapanışına kadar bekler; kapanışta tek kayıt olarak deftere işlenir ve yayıncı / platform payı ayrılır.' },
+        wait: 'Platformdan geçen tutar (RTB ve kendi DSP\'miz; doğrudan kampanyada yalnızca ad serving ücreti) saat kapanışına kadar bekler; kapanışta deftere işlenir ve yayıncı / platform payı ayrılır.' },
 
       { id: 'cleanroom', label: 'Data Clean Room',       g: 'cleanroom', kind: 'service', p: [-20, -21, 9], r: 1.6,
         desc: 'Partner verisiyle ham veri paylaşmadan eşleştirme (TEE / PSI). Çıktı yalnızca eşik + DP gürültüsü uygulanmış agrega ya da dışa aktarılamayan opak segmenttir.', doc: '04-data-clean-room.md#42-mimari' }
@@ -454,11 +457,11 @@
       ['web', 'gateway', 'ad'], ['mobil', 'gateway', 'ad'], ['ctv', 'gateway', 'ad'],
       ['web', 'collector', 'dmp'], ['mobil', 'collector', 'dmp'], ['ctv', 'collector', 'dmp'],
       ['web', 'tracking', 'measure'], ['mobil', 'tracking', 'measure'], ['ctv', 'tracking', 'measure'],
-      ['gateway', 'adserver', 'ad'], ['adserver', 'prebid', 'ad'], ['adserver', 'profile', 'dmp'],
+      ['gateway', 'adserver', 'ad'], ['adserver', 'prebid', 'ad'], ['adserver', 'context', 'ad'], ['context', 'web', 'measure'], ['adserver', 'profile', 'dmp'],
       ['pubpanel', 'adserver', 'ad'],
       ['adserver', 'exchange', 'market'],
       ['exchange', 'dsp', 'market'], ['exchange', 'dspA', 'market'], ['exchange', 'dspB', 'market'], ['exchange', 'dspC', 'market'],
-      ['dsp', 'counters', 'market'], ['dsp', 'segment', 'dmp'], ['advpanel', 'dsp', 'market'],
+      ['dsp', 'counters', 'market'], ['advpanel', 'dsp', 'market'],
       ['adserver', 'kafka', 'veri'], ['collector', 'kafka', 'veri'], ['tracking', 'kafka', 'veri'], ['exchange', 'kafka', 'veri'],
       ['kafka', 'flink', 'veri'],
       ['flink', 'identity', 'dmp'], ['identity', 'profile', 'dmp'], ['flink', 'segment', 'dmp'], ['segment', 'profile', 'dmp'],
@@ -480,7 +483,7 @@
         layout: 'set', parts: [
           { id: 'collect', label: 'collect.js', desc: 'Olayları (page_view, product_view, purchase…) rıza dizesiyle birlikte Collector\'a toplu gönderir.' },
           { id: 'tag', label: 'Reklam etiketi / Prebid.js', desc: 'Reklam alanını tanımlar, header bidding yapar ve ad server\'dan karar ister.' },
-          { id: 'cmp', label: 'CMP (rıza)', desc: 'KVKK açık rızası ve TCF/GPP dizesini üretir; tüm zincire bu sinyal taşınır.' },
+          { id: 'cmp', label: 'CMP (rıza)', desc: 'Yayıncının rıza ekranı: rızayı yayıncı alır. Rıza yoksa collect.js yüklenmez, reklam etiketi kimlik göndermez; platform yalnızca sinyale uyar.' },
           { id: 'cookie', label: '1P cookie', desc: 'Yayıncının alan adından sunucu tarafında set edilen HttpOnly, Secure çerez (fpc kimliği).' }] },
       mobil: { tech: [['iOS / Android SDK', 'Swift, Kotlin'], ['OM SDK', 'görünürlük ölçümü'], ['SKAdNetwork / AdAttributionKit', 'iOS atıflama'], ['MRAID 3.0', 'uygulama içi rich media']],
         layout: 'set', parts: [
@@ -498,7 +501,7 @@
         layout: 'pipeline', parts: [
           { id: 'tls', label: 'TLS sonlandırma', desc: 'Bütçe: TLS + LB p99 ≈ 2 ms.' },
           { id: 'waf', label: 'WAF / rate limit', desc: 'Kötü niyetli ve aşırı istekleri keser.' },
-          { id: 'validate', label: 'İstek doğrulama', desc: 'Parametreleri ve rıza dizesini doğrular.' },
+          { id: 'validate', label: 'Doğrulama + rıza çözümü', desc: 'Parametreleri doğrular; rıza dizesini tek sefer bit maskesine çözer. Sonraki servisler yalnızca bu biti okur.' },
           { id: 'geo', label: 'GeoIP + UA', desc: 'Konum ve cihaz bilgisini ekler (bellek içi, ≈ 0,3 ms).' },
           { id: 'route', label: 'Yönlendirme', desc: 'Reklam isteği → karar motoru, olay → Collector, beacon → Tracking.' }] },
       collector: { tech: [['Go', 'durumsuz, yatay ölçek'], ['Protobuf + Schema Registry', 'olay sözleşmesi'], ['Kafka producer', 'idempotent, zstd'], ['Yerel disk tamponu', 'Kafka erişilemezse']],
@@ -514,14 +517,20 @@
           { id: 'redirect', label: 'Tıklama yönlendirme', desc: 'Yalnızca imzalı hedefe 302.' },
           { id: 'produce', label: 'Kafka producer', desc: 'ad.events topic\'ine yazar.' }] },
 
+      context: { tech: [['Aerospike context seti', 'url_hash → etiketler, TTL 24 saat'], ['Go tarayıcı', 'yalnızca trafik alan URL'], ['Zemberek', 'Türkçe kök bulma'], ['Türkçe / çok dilli encoder', 'ör. BERTurk, multilingual-e5']],
+        layout: 'set', parts: [
+          { id: 'cache', label: 'URL önbelleği', desc: 'İstek anında tek okuma: kategori, anahtar kelimeler, marka güvenliği sınıfı ve eşleşen kampanyalar. Model çalışmaz.' },
+          { id: 'crawl', label: 'Tarayıcı', desc: 'Önbellekte olmayan ya da süresi dolan URL sayfayı indirir; menü, reklam ve yorumlar ayıklanır.' },
+          { id: 'classify', label: 'Sınıflandırıcı', desc: 'Kök bulma + encoder: IAB kategorisi, varlıklar, duygu, marka güvenliği, sayfa embedding.' },
+          { id: 'match', label: 'Anlamsal eşleşme', desc: 'Kampanya kontekst tanımı ile sayfa embedding benzerliği; sonuç URL kaydına yazılır, istek anında hesaplanmaz.' }] },
       adserver: { tech: [['Go', 'sync.Pool, sıfır-kopya parse'], ['Conjunction index', 'bellek içi hedefleme (VLDB 2009)'], ['ONNX Runtime', 'pCTR / pCVR, süreç içi'], ['Aerospike istemcisi', 'idmap + profil'], ['Kubernetes', 'ayrı node pool, CPU pinning']],
         layout: 'pipeline', parts: [
-          { id: 'consent', label: 'Rıza kontrolü', desc: 'Kişiselleştirme izni yoksa profil okunmaz, yalnızca kontekstüel karar.', tech: 'TCF / GPP ayrıştırıcı' },
+          { id: 'consent', label: 'Rıza biti + IVT', desc: 'Edge\'de çözülmüş rıza biti okunur (kişiselleştirme kapalıysa profil okuması atlanır). Teklif öncesi IVT kontrolü burada bir kez yapılır; şüpheli istek Exchange\'e gitmez.' },
           { id: 'identity', label: 'Kimlik + profil okuma', desc: 'Önce idmap (id → person_id), sonra profil; sıralı, toplam ≈ 2 ms.', tech: 'Aerospike' },
           { id: 'index', label: 'Targeting index', desc: '100K+ line item arasında aday bulma < 1 ms. Config snapshot + delta ile güncellenir, atomic pointer swap.', tech: 'Conjunction index (DNF)' },
           { id: 'filters', label: 'Filtreler', desc: 'Frekans sınırı, pacing throttle, marka güvenliği, kreatif uyumu, rekabet ayrımı.' },
           { id: 'score', label: 'ML skorlama', desc: 'pCTR / pCVR ile eCPM normalizasyonu; kalibrasyon (isotonic) şart.', tech: 'ONNX Runtime' },
-          { id: 'auction', label: 'Birleşik açık artırma', desc: 'Garantili gölge fiyat, Exchange kazananı ve Prebid teklifleri aynı eCPM ölçeğinde yarışır.' },
+          { id: 'auction', label: 'Birleşik açık artırma', desc: 'Yayıncıya kalan NET değerle karşılaştırılır: garantili kampanya tam eCPM (gölge fiyat), Exchange kazananı fiyat × (1 − take rate), Prebid teklifi SSP ücreti düşülmüş.' },
           { id: 'creative', label: 'Kreatif + imzalı URL', desc: 'Kreatif markup / VAST ve HMAC imzalı tracking URL\'leri döner; karar olayı async Kafka\'ya.' }] },
       prebid: { tech: [['Prebid Server (Go)', 'açık kaynak'], ['OpenRTB 2.6', 'bidder dili'], ['200+ bidder adaptörü', 'hazır entegrasyon']],
         layout: 'set', parts: [
@@ -539,17 +548,17 @@
 
       exchange: { tech: [['Go', 'düşük gecikme, yüksek QPS'], ['OpenRTB 2.6', 'JSON + gzip, HTTP/2 keep-alive'], ['ads.txt / sellers.json tarayıcı', 'yetkili satıcı'], ['IVT itibar skoru', 'teklif öncesi'], ['Kafka', 'rtb.auctions']],
         layout: 'pipeline', parts: [
-          { id: 'prefilter', label: 'Ön filtre', desc: 'IVT, ads.txt / sellers.json yetkisi, blok listeleri (badv, bcat), rıza ve vendor izni.' },
+          { id: 'prefilter', label: 'Ön filtre', desc: 'Yeniden kontrol yok: ad server\'ın IVT bayrağı ve günlük taramadan önbelleğe alınmış ads.txt / sellers.json sonucu okunur; blok listeleri (badv, bcat) ve vendor izni uygulanır.' },
           { id: 'shaping', label: 'DSP seçimi', desc: 'Pretargeting, QPS limiti ve öğrenen kısma: düşük teklif oranlı DSP\'ye daha az istek.' },
           { id: 'fanout', label: 'Paralel dağıtım', desc: 'Seçili DSP\'lere aynı anda; tmax ≈ 100 ms, geç kalan beklenmez.' },
-          { id: 'auction', label: 'Birinci fiyat açık artırma', desc: 'Taban fiyat (ad unit ve dinamik floor\'un büyüğü), deal öncelikleri, para birimi çevrimi.' },
+          { id: 'auction', label: 'Birinci fiyat açık artırma', desc: 'bidfloor = net taban ÷ (1 − take rate); deal öncelikleri, aynı alıcının teklifleri tekilleştirilir, para birimi çevrimi.' },
           { id: 'notify', label: 'Bildirim + komisyon', desc: 'nurl / burl / lurl; faturalama burl ile. Take rate her açık artırma kaydında saklanır, schain\'e düğüm eklenir.' }] },
       dsp: { tech: [['Go', 'teklif motoru, p99 < 20 ms'], ['Conjunction index', 'ad server ile ortak kütüphane'], ['ONNX Runtime', 'pCTR / pCVR, bid shading'], ['Aerospike / Redis', 'bütçe ve frekans sayaçları'], ['PID kontrolcü', 'pacing']],
         layout: 'pipeline', parts: [
           { id: 'parse', label: 'İstek + rıza', desc: 'OpenRTB 2.6 ayrıştırma; vendor izni yoksa kimlik kullanılmaz.' },
-          { id: 'match', label: 'Hedefleme eşleşmesi', desc: 'Aday kampanyalar (coğrafya, cihaz, kategori, kitle).' },
-          { id: 'budget', label: 'Bütçe + pacing', desc: 'harcanan + rezerve < bütçe; %95\'te kısma, %100\'de durma.', tech: 'Sayaç deposu' },
-          { id: 'fcap', label: 'Frekans sınırı', desc: 'Kullanıcı başına saatlik / günlük kovalar.' },
+          { id: 'match', label: 'Hedefleme eşleşmesi', desc: 'Aday kampanyalar (coğrafya, cihaz, kategori). Yayıncı kitlesi teklif isteğindeki user.data / deal ID\'den okunur; reklamverenin retargeting kitlesi user.eids ile kitle deposunda eşlenir. Profil ya da segment deposuna gidilmez.' },
+          { id: 'budget', label: 'Bütçe + pacing', desc: 'harcanan + rezerve < bütçe; rezervasyonun TTL\'i (≈ 1 saat) var, render edilmeyen kazançlar bütçeyi kilitlemez. %95\'te kısma, %100\'de durma.', tech: 'Sayaç deposu' },
+          { id: 'fcap', label: 'Frekans sınırı', desc: 'Varsayılan yayıncı başına (kiracı izolasyonu); ağ genelinde yalnızca rızalı ortak kimlikle (UID2, hashed email).' },
           { id: 'price', label: 'Fiyat + bid shading', desc: 'Hedef CPC/CPA → CPM; kazanma olasılığı eğrisiyle birinci fiyatta fazla ödememe.', tech: 'ONNX' },
           { id: 'respond', label: 'BidResponse', desc: 'Fiyat, kreatif, adomain, crid ve burl.' }] },
       dspA: { tech: [['OpenRTB 2.6', 'Exchange bağlantısı'], ['exchange_buyers', 'bağlantı ayarları (bizde)']],
@@ -570,13 +579,13 @@
       counters: { tech: [['Aerospike', 'varsayılan (ayrı dsp namespace)'], ['Redis Cluster', 'alternatif: INCRBY / Lua'], ['Flink', 'kalıcı sayaçların kaynağı']],
         layout: 'set', parts: [
           { id: 'budget', label: 'Günlük / toplam bütçe', desc: 'Kampanya ve reklamveren bazında harcanan tutar.' },
-          { id: 'reserve', label: 'Rezervasyon', desc: 'Teklif verilip henüz faturalanmamış (burl gelmemiş) tutar.' },
+          { id: 'reserve', label: 'Rezervasyon', desc: 'Teklif verilip henüz faturalanmamış (burl gelmemiş) tutar; TTL ile kendiliğinden düşer.' },
           { id: 'fcap', label: 'Frekans kovaları', desc: 'Kullanıcı × kampanya saatlik ve günlük sayaçlar.' },
           { id: 'throttle', label: 'Pacing throttle', desc: 'Pacing kontrolcüsünün ürettiği 0–1 katılım olasılığı.' }] },
       advpanel: { tech: [['React + TypeScript', 'self-servis arayüz'], ['Management API', 'REST + GraphQL'], ['ClickHouse', 'anlık raporlar'], ['Ödeme / e-fatura', 'bakiye, kredi limiti']],
         layout: 'set', parts: [
           { id: 'campaign', label: 'Kampanya kurulumu', desc: 'Hedef, tarih, bütçe ve hedefleme.' },
-          { id: 'audience', label: 'Kitle seçimi', desc: 'Yayıncının izin verdiği segmentler; kişi verisi DSP\'ye geçmez.' },
+          { id: 'audience', label: 'Kitle seçimi', desc: 'Yayıncının izin verdiği segmentler (yalnızca o yayıncıda) ve reklamverenin kendi retargeting kitleleri (piksel / CRM, ortak kimlikle eşleşir). Kişi verisi yayıncıya geçmez.' },
           { id: 'creative', label: 'Kreatif', desc: 'Yükleme, otomatik tarama ve onay, önizleme.' },
           { id: 'strategy', label: 'Teklif stratejisi', desc: 'Sabit CPM, hedef CPC, hedef CPA.' },
           { id: 'billing', label: 'Bütçe ve ödeme', desc: 'Ön ödeme bakiyesi veya kredi limiti, faturalar.' },
@@ -601,7 +610,7 @@
           { id: 'batch', label: 'Batch SQL', desc: 'Aynı DSL → SQL; gece reconcile işi.' },
           { id: 'lal', label: 'Lookalike / propensity', desc: 'Embedding + ANN, GBDT modelleri (günlük).' },
           { id: 'sketch', label: 'Sketch', desc: '"A ∩ B ∩ ¬C kaç kişi?" milisaniyede, ham veriye inmeden.' },
-          { id: 'opaque', label: 'Opak segment alıcısı', desc: 'Clean room çıktısı; exportable = false.' }] },
+          { id: 'opaque', label: 'Opak segment alıcısı', desc: 'Clean room çıktısı; exportable = false, yalnızca kaynak yayıncının envanterinde hedeflenir.' }] },
 
       kafka: { tech: [['Apache Kafka (KRaft)', 'olay omurgası'], ['Schema Registry', 'Protobuf, geriye uyumlu evrim'], ['MirrorMaker 2', 'bölgeler arası'], ['zstd', '~4× sıkıştırma']],
         layout: 'set', parts: [
@@ -621,7 +630,7 @@
         layout: 'pipeline', parts: [
           { id: 'buffer', label: 'Toplu ekleme tamponu', desc: 'Satırlar biriktirilip tek seferde yazılır (küçük insert\'ler pahalıdır).' },
           { id: 'raw', label: 'ads.ad_events', desc: 'Ham olaylar, 90 gün, IVT işaretli.' },
-          { id: 'mv', label: 'mv_ad_stats_hourly', desc: 'IVT hariç; faturalanan olayın fiyatından gelir.' },
+          { id: 'mv', label: 'mv_ad_stats_hourly', desc: 'IVT hariç; faturalanan olayın fiyatından gelir. Sonradan bulunan IVT negatif düzeltme satırıyla düşülür.' },
           { id: 'hourly', label: 'ads.ad_stats_hourly', desc: 'Saatlik agrega, 25 ay; paneller buradan okur.' }] },
       iceberg: { tech: [['Apache Iceberg', 'açık tablo formatı, time travel'], ['S3 / MinIO', 'nesne depolama'], ['Trino + Spark', 'sorgu ve batch'], ['Dagster / Airflow', 'orkestrasyon']],
         layout: 'pipeline', parts: [
@@ -634,7 +643,7 @@
         layout: 'pipeline', parts: [
           { id: 'hourly', label: 'Saat kapanışı', desc: 'Flink\'in kapanmış saat sayaçları idempotent anahtarla alınır.' },
           { id: 'entries', label: 'ledger_entries', desc: 'Her işlem en az iki satır, toplamı sıfır.' },
-          { id: 'split', label: 'Komisyon ayrımı', desc: 'Yayıncı payı = fiyat × (1 − take rate); platform geliri; vergi.' },
+          { id: 'split', label: 'Kanal + komisyon ayrımı', desc: 'sale_channel\'a göre: RTB / kendi DSP → yayıncı payı = fiyat × (1 − take rate); doğrudan kampanya → yalnızca ad serving ücreti; harici SSP → deftere girmez.' },
           { id: 'payouts', label: 'Hakediş', desc: 'Aylık; IVT düzeltmesi düşülür, eşik altı devreder.' },
           { id: 'invoices', label: 'Fatura', desc: 'Reklamverene e-fatura / e-arşiv.' }] },
       cleanroom: { tech: [['AMD SEV-SNP / Intel TDX', 'gizli VM + remote attestation'], ['ECDH-PSI', 'kriptografik eşleştirme'], ['Spark SQL / DuckDB', 'sorgu motoru'], ['OpenDP', 'diferansiyel gizlilik']],
@@ -888,8 +897,11 @@
     const packets = [];
     const pool = [];
     const MAX_PACKETS = 420;
-    const TAKE_RATE = 0.15;
-    const FLOOR = 30;
+    const TAKE_RATE = 0.15;      // Exchange komisyonu
+    const PREBID_FEE = 0.12;     // Prebid ile kazanan harici SSP'nin ücreti (örnek)
+    const AD_SERVING_FEE = 0.03; // yayıncının doğrudan kampanyasında platformun ad serving ücreti
+    const NET_FLOOR = 25.5;      // yayıncının girdiği taban (net)
+    const FLOOR = NET_FLOOR / (1 - TAKE_RATE); // DSP'lere giden bidfloor (brüt) = 30 ₺
     const TMAX = 1.0;   // simülasyonda DSP yanıt süresi sınırı (100 ms'nin temsili)
 
     // sıfırlamadan önce kurulmuş zamanlayıcılar hiç çözülmez; eski akış orada sessizce biter
@@ -956,6 +968,24 @@
       await send('gateway', 'adserver', 'req', o);
       if (g !== sim.gen) return;
 
+      // IVT teklif öncesi kontrolü burada bir kez yapılır; sonuç Exchange'e bayrak olarak gider, Exchange tekrar kontrol etmez
+      if (Math.random() < 0.06) {
+        stats.ivt++;
+        tlog(tr, 'Ad Server ön kontrol: şüpheli trafik (IVT) — reklam verilmez, Exchange\'e istek gitmez', 'bad');
+        await send('adserver', 'gateway', 'reject', o);
+        return;
+      }
+
+      // kontekst: rızadan bağımsız, her istekte tek önbellek okuması
+      await send('adserver', 'context', 'read', { ...o, part: 'cache' }); await send('context', 'adserver', 'read', o);
+      if (Math.random() < 0.1) {
+        tlog(tr, 'Kontekstüel servis: URL önbellekte yok — bu istek site düzeyi kategoriyle, sayfa arka planda taranıyor');
+        fire('context', 0.4, 'crawl', tr); // tarayıcı parçası ateşlenir, sayfa indirilir
+        send('context', 'web', 'event').then(() => g === sim.gen && send('web', 'context', 'event', { part: 'classify' }));
+      } else {
+        tlog(tr, 'Kontekstüel servis: URL etiketleri önbellekten (kategori, marka güvenliği, eşleşen kampanyalar)');
+      }
+
       if (consent) {
         tlog(tr, 'Ad Server → Aerospike: önce idmap (id → person_id), sonra profil okunur');
         await send('adserver', 'profile', 'read', { ...o, part: 'idmap' }); await send('profile', 'adserver', 'read', o);
@@ -963,14 +993,14 @@
       }
 
       const prebidP = Math.random() < 0.55
-        ? trip('adserver', 'prebid', 'bid', o).then(() => ({ who: 'Prebid', price: rand(18, 44) }))
+        ? trip('adserver', 'prebid', 'bid', o).then(() => { const price = rand(18, 48); return { who: 'Prebid (harici SSP)', price, net: price * (1 - PREBID_FEE), channel: 'prebid_external' }; })
         : Promise.resolve(null);
       const exP = exchangeAuction(consent, tr);
       const [pb, ex] = await Promise.all([prebidP, exP]);
       if (g !== sim.gen) return;
 
       const cands = [];
-      if (Math.random() < 0.28) cands.push({ who: 'Garantili kampanya', price: rand(34, 50), direct: true });
+      if (Math.random() < 0.28) { const price = rand(32, 46); cands.push({ who: 'Garantili kampanya', price, net: price, channel: 'direct' }); }
       if (pb) cands.push(pb);
       if (ex) cands.push(ex);
       if (!cands.length) {
@@ -978,10 +1008,12 @@
         await send('adserver', 'gateway', 'ad', o); await send('gateway', src, 'ad', { ...o, part: { web: 'tag', mobil: 'ads' }[src] });
         return;
       }
-      cands.sort((x, y) => y.price - x.price);
+      // yayıncıya kalan net değer üzerinden karşılaştırılır (Exchange: fiyat × (1 − take rate), Prebid: SSP ücreti düşülmüş)
+      cands.sort((x, y) => y.net - x.net);
       const w = cands[0];
-      stats.wins++; stats.cpmSum += w.price;
-      tlog(tr, `Birleşik açık artırma: kazanan ${w.who} · ${fmt1.format(w.price)} ₺ CPM` + (cands.length > 1 ? ` (${cands.length} aday)` : ''));
+      stats.wins++; stats.cpmSum += w.net;
+      tlog(tr, `Birleşik açık artırma (net): kazanan ${w.who} · yayıncıya ${fmt1.format(w.net)} ₺` + (w.net !== w.price ? ` (brüt ${fmt1.format(w.price)} ₺)` : '') +
+        (cands.length > 1 ? ` · rakipler: ${cands.slice(1).map((c) => `${c.who} ${fmt1.format(c.net)} ₺`).join(', ')}` : ''));
 
       send('adserver', 'kafka', 'log', { part: 'dec' }).then(() => g === sim.gen && enqueue('kafka', { topic: 'dec' }));
       await send('adserver', 'gateway', 'ad', o);
@@ -992,7 +1024,7 @@
       await send(src, 'tracking', 'beacon', o);
       await send('tracking', 'kafka', 'beacon', { ...o, part: 'adev' });
       if (g !== sim.gen) return;
-      enqueue('kafka', { topic: 'ad', price: w.price, direct: !!w.direct, tr });
+      enqueue('kafka', { topic: 'ad', price: w.price, channel: w.channel, tr });
       tlog(tr, 'Beacon Kafka\'da: Flink tüketicisini bekliyor');
     }
 
@@ -1001,12 +1033,6 @@
       const o = { traced: tr };
       const ex = byId.exchange;
       await send('adserver', 'exchange', 'req', o);
-      if (Math.random() < 0.06) {
-        stats.ivt++;
-        tlog(tr, 'Exchange ön filtre: şüpheli trafik (IVT) — istek hiçbir DSP\'ye gitmedi', 'bad');
-        await send('exchange', 'adserver', 'reject', o);
-        return null;
-      }
       ex.auctions++;
       const dsps = ['dsp', 'dspA', 'dspB', 'dspC'].filter((d) => d === 'dsp' || Math.random() > 0.22);
       if (tr) tlog(tr, `Exchange teklif isteğini ${dsps.length} DSP'ye paralel dağıttı (tmax ≈ 100 ms)`);
@@ -1017,7 +1043,7 @@
       const below = bids.filter((b) => b && b.price < FLOOR).length;
       send('exchange', 'kafka', 'log', { part: 'rtb' }).then(() => g === sim.gen && enqueue('kafka', { topic: 'rtb' }));
       if (!valid.length) {
-        tlog(tr, `Exchange: taban fiyatın (${FLOOR} ₺) üstünde teklif yok` + (below ? ` · ${below} teklif elendi` : ''));
+        tlog(tr, `Exchange: bidfloor'un (${fmt1.format(FLOOR)} ₺ brüt = ${fmt1.format(NET_FLOOR)} ₺ net) üstünde teklif yok` + (below ? ` · ${below} teklif elendi` : ''));
         await send('exchange', 'adserver', 'reject', o);
         return null;
       }
@@ -1025,7 +1051,7 @@
       tlog(tr, `Exchange birinci fiyat: ${byId[win.d].label} ${fmt1.format(win.price)} ₺ öder` + (below ? ` · ${below} teklif taban altında` : ''));
       send('exchange', win.d, 'win');
       await send('exchange', 'adserver', 'win', o);
-      return { who: byId[win.d].label, price: win.price, d: win.d };
+      return { who: byId[win.d].label, price: win.price, net: win.price * (1 - TAKE_RATE), d: win.d, channel: win.d === 'dsp' ? 'own_dsp' : 'exchange' };
     }
 
     async function askDsp(d, consent, tr) {
@@ -1033,7 +1059,6 @@
       await send('exchange', d, 'req', o);
       if (d === 'dsp') {
         await send('dsp', 'counters', 'read', { ...o, part: pick(['budget', 'reserve', 'fcap', 'throttle']) }); await send('counters', 'dsp', 'read', o);
-        if (consent) { await send('dsp', 'segment', 'seg', { ...o, part: 'realtime' }); await send('segment', 'dsp', 'seg', o); }
       }
       const slowP = { dsp: 0.02, dspA: 0.08, dspB: 0.12, dspC: 0.35 }[d];
       if (Math.random() < slowP) {
@@ -1087,11 +1112,20 @@
           tlog(tr, 'Flink: gösterim sonrası IVT işareti — faturalanmaz, rapora yansımaz', 'bad');
           return;
         }
-        if (!item.direct) send('flink', 'counters', 'read', { ...o, part: pick(['budget', 'fcap']) });
+        if (item.channel === 'own_dsp') send('flink', 'counters', 'read', { ...o, part: pick(['budget', 'fcap']) });
+        // deftere yalnızca platformdan geçen para yazılır
+        if (item.channel === 'prebid_external') {
+          tlog(tr, 'Flink: gösterimi harici bir SSP kazandı — para o SSP üzerinden akar, deftere yazılmaz', 'money');
+          return;
+        }
+        const fee = item.channel === 'direct';
+        const amount = fee ? item.price * AD_SERVING_FEE : item.price;
         send('flink', 'ledger', 'money', o).then(() => {
           if (g !== sim.gen) return;
-          enqueue('ledger', { amount: item.price, tr });
-          tlog(tr, `Flink: ${fmt1.format(item.price)} ₺ harcama deftere gidiyor — saat kapanışını bekliyor`, 'money');
+          enqueue('ledger', { amount, fee, tr });
+          tlog(tr, fee
+            ? `Flink: doğrudan kampanya — para yayıncıda; deftere yalnızca ad serving ücreti ${fmt1.format(amount)} ₺ gidiyor`
+            : `Flink: ${fmt1.format(amount)} ₺ harcama deftere gidiyor — saat kapanışını bekliyor`, 'money');
         });
       } else {
         send('flink', 'clickhouse', 'report').then(() => g === sim.gen && enqueue('clickhouse', {}));
@@ -1110,10 +1144,13 @@
         if (byId.iceberg.commits % 3 === 0) cleanRoomJob(false);
       },
       ledger(items, manual) {
-        const sum = items.reduce((s, x) => s + (x.amount || 0), 0);
         if (!items.length) { if (manual) log('Saat kapanışı: bekleyen harcama yok', 'money'); return; }
-        stats.revenue += sum; stats.take += sum * TAKE_RATE;
-        log(`Saat kapanışı: ${fmt.format(items.length)} kayıt, ${money(sum)} deftere işlendi · yayıncı ${money(sum * (1 - TAKE_RATE))}, platform ${money(sum * TAKE_RATE)}`, (manual ? 'tr ' : '') + 'money');
+        const rtb = items.filter((x) => !x.fee).reduce((s, x) => s + x.amount, 0);
+        const fees = items.filter((x) => x.fee).reduce((s, x) => s + x.amount, 0);
+        const platform = rtb * TAKE_RATE + fees;
+        stats.revenue += rtb + fees; stats.take += platform;
+        log(`Saat kapanışı: ${fmt.format(items.length)} kayıt · RTB ${money(rtb)} (yayıncı ${money(rtb * (1 - TAKE_RATE))}, komisyon ${money(rtb * TAKE_RATE)})` +
+          (fees ? ` · ad serving ücreti ${money(fees)}` : '') + ` · platform geliri ${money(platform)}`, (manual ? 'tr ' : '') + 'money');
         const o = { traced: manual };
         send('ledger', 'pubpanel', 'money', { ...o, part: 'payout' }); send('ledger', 'advpanel', 'money', { ...o, part: 'billing' });
       }

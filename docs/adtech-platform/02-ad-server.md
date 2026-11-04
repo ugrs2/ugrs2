@@ -42,7 +42,7 @@ sequenceDiagram
 
     P->>G: Ad request (ad unit, sayfa URL, rıza dizesi, 1P id, MAID, PPID)
     G->>D: Doğrulanmış istek + GeoIP + UA
-    D->>D: Rıza kontrolü (amaç 1, 3, 4 / KVKK açık rıza)
+    D->>D: Rıza biti okunur (edge'de çözüldü; kişiselleştirme kapalıysa profil okuması atlanır)
     par Kimlik + profil (sıralı iki okuma, toplam timeout 5 ms)
         D->>I: id → person_id
         I-->>D: person_id
@@ -93,7 +93,7 @@ Hedefleme DSL örneği:
 - Kurallar: `{ "scope": "line_item|campaign|advertiser", "max": 3, "window": "24h" }` (çoklu kural desteklenir).
 - Sayaçlar profil kaydında `fcap` haritasında iki çözünürlükte tutulur: son 24 saat için **saatlik** kovalar (24 eleman) ve son 30 gün için **günlük** kovalar (30 eleman) → `≤ 24h` pencereler saatlik, `7d` / `30d` pencereler günlük kovalardan ucuzca hesaplanır. 30 günden uzun (ör. kampanya ömrü boyu) kurallar için ayrı bir toplam sayaç (`total`) tutulur.
 - **İki aşamalı güncelleme:** (1) Ad server, yanıt döndüğü anda yerel/iyimser sayaç artırır (burst'te aşırı teslimatı önler); (2) gerçek impression olayı Flink üzerinden profil deposunda kalıcı sayacı artırır.
-- Kimliği olmayan trafik için: istemci tarafı (localStorage) fcap veya oturum bazlı fcap.
+- Kimliği ya da rızası olmayan trafik için tarayıcıda depolama (cookie, localStorage) **kullanılmaz**; bu da rıza gerektirir ([7.2](07-gizlilik-ve-uyum.md#72-rıza-consent-sorumluluk-ve-akış)). Yalnızca kimliksiz kurallar uygulanır: aynı sayfa görüntülemesinde (`page_view_id`) aynı kampanyayı tekrar göstermeme ve rekabet ayrımı.
 
 ### 2.3.3 Pacing (Bütçe / Teslimat Hızı)
 - Modlar: `even` (gün boyu eşit), `asap`, `front_loaded`.
@@ -114,10 +114,14 @@ Hedefleme DSL örneği:
 
 - Modeller (LightGBM / küçük DNN) ONNX formatında **ad server prosesine gömülü** çalışır (ağ çağrısı yok, < 2 ms).
 - Kalibrasyon (isotonic regression) şarttır; aksi halde CPC/CPA kampanyalar CPM ile adil yarışamaz.
+- **pViewable modeli:** vCPM eCPM'i ve dinamik floor bu tahmini kullanır. Girdiler: ad unit konumu (katlama üstü / altı), sayfa uzunluğu, cihaz, sayfanın ortalama scroll derinliği (agrega), yerleşimin geçmiş görünürlük oranı. Model GBDT; etiket OM SDK / görünürlük beacon'ından gelir.
 
 ### 2.3.5 Birleşik Açık Artırma
 - Katılımcılar: direct line item'lar (eCPM), header bidding teklifleri (Prebid), Ad Exchange'in kazanan teklifi (kendi DSP'miz + harici DSP'ler, bkz. [9](09-exchange-ve-dsp.md)), deal'ler.
 - Mekanizma: **first-price** (sektör standardı); dinamik **floor** (ad unit × ülke × cihaz × saat bazlı, ML ile optimize edilen).
+- **Net karşılaştırma:** Adaylar yayıncıya kalan **net** tutar üzerinden yarışır. Exchange kazananı `fiyat × (1 − take rate)`, Prebid teklifleri ilgili SSP'nin ücreti düşülmüş olarak, doğrudan line item'lar eCPM'in (garantilide gölge fiyatın) tamamıyla girer. Brüt fiyatla karşılaştırmak RTB'yi olduğundan değerli gösterir ve yayıncının gelirini düşürür.
+- Yayıncının panelde girdiği taban fiyatlar **net**tir; Exchange'e giden `bidfloor` = net taban ÷ (1 − take rate).
+- **Aynı alıcı tekilleştirme:** Aynı alıcı (seat + `adomain`) hem Prebid üzerinden başka bir SSP'den hem Exchange'den teklif verirse yalnızca net değeri yüksek olan teklif kalır; alıcı kendi fiyatını yükseltmez.
 - Rekabet ayrımı (competitive exclusion): aynı sayfada rakip markaların gösterilmemesi; `adomain` ve kategori bazlı engelleme.
 - Kazanan seçildikten sonra: win notice (`nurl`), billing notice (`burl`) ve loss notice (`lurl`) gönderilir.
 
@@ -126,6 +130,15 @@ Hedefleme DSL örneği:
 - **OpenRTB 2.6** bid request: `imp`, `site/app`, `device`, `user.eids` (UID2, ID5 vb.), `user.data` (Seller-Defined Audiences, IAB Audience Taxonomy), `source.schain`, `regs` (GDPR/GPP), `pmp.deals`.
 - Arz zinciri şeffaflığı: `ads.txt`, `app-ads.txt`, `sellers.json`, `SupplyChain` nesnesi.
 - Bidder başına timeout, QPS limiti ve **traffic shaping** (düşük teklif oranlı bidder'lara istek kısma) — maliyet ve gecikme için kritik.
+
+### 2.3.7 Kreatif Seçimi (Optimizasyon)
+Bir line item'ın birden çok kreatifi varsa hangisinin gösterileceğine sabit ağırlık değil, öğrenen bir kural karar verir.
+
+- **Yöntem:** Thompson sampling. Her (line item, kreatif) için başarı / deneme sayılarından `Beta(başarı + 1, deneme − başarı + 1)` dağılımı tutulur; istek anında her kreatif için bir örnek çekilir, en yükseği gösterilir. İyi performans gösteren kreatife trafik kendiliğinden kayar, yeni kreatif keşif payı alır.
+- **Başarı tanımı kampanya hedefine göre:** tıklama (CPC), görüntülenebilir gösterim (vCPM), tamamlanan izleme (CPCV), dönüşüm (CPA).
+- **Maliyet:** Sayaçlar Flink'te toplanır ve config akışıyla dakikada bir ad server'a gelir; istek anında yalnızca bellekte birkaç sayı çekilir, yazma yoktur.
+- **Kreatif yorgunluğu:** Aynı kişiye aynı kreatif üst üste N kez gösterildiyse sıradaki seçilir (frekans kovalarında kreatif bazlı sayaç).
+- **Reklamveren tercihi:** A/B testi isteyen reklamveren "eşit dağıt" seçebilir; o zaman bandit kapalıdır.
 
 ## 2.4 Kreatif ve Formatlar
 
@@ -163,9 +176,10 @@ Kreatif akışı:
 | Katman | Yöntem |
 |--------|-------|
 | **GIVT** | IAB/ABC bot & spider listesi, veri merkezi IP listeleri, bilinen tarayıcı dışı UA |
-| **SIVT** | Davranışsal ML (tıklama zamanlaması, oturum anomalileri, cihaz parmak izi tutarsızlığı, IP konumu ile tarayıcı saat dilimi uyuşmazlığı, aynı cihazdan aşırı istek, olağan dışı saat yoğunlukları), click-injection, SDK spoofing tespiti |
-| **Pre-bid** | İstek anında filtre (ucuz kurallar + itibar skoru); `ads.txt` / `app-ads.txt` ve `sellers.json`'da yetkili olmayan satıcıdan gelen istek reddedilir |
+| **SIVT** | Davranışsal ML (tıklama zamanlaması, oturum anomalileri, cihaz sinyali tutarsızlığı (ör. UA iPhone diyor, ekran ve yazı tipleri masaüstü gösteriyor), IP konumu ile tarayıcı saat dilimi uyuşmazlığı, aynı cihazdan aşırı istek, olağan dışı saat yoğunlukları), click-injection, SDK spoofing tespiti |
+| **Pre-bid** | İstek anında, **ad server'da bir kez**: ucuz kurallar + itibar skoru. Sonuç `ivt_flag` olarak Exchange'e taşınır; Exchange yeniden kontrol etmez. `ads.txt` / `app-ads.txt` ve `sellers.json` yetkisi günlük tarama işiyle hesaplanır, istek anında önbellekten okunur |
 | **Post-impression** | Flink + batch analiz; faturadan düşme ve iade ([10.5](10-faturalama-ve-para-akisi.md#105-sahte-trafik-iadesi)) |
+| **Cihaz sinyallerinin sınırı** | Yalnızca istek anında, bot / sahte trafik kararı için değerlendirilir; kalıcı bir kimliğe (fingerprint) dönüştürülmez, siteler arasında bağlanmaz, profile yazılmaz. Tam IP yalnızca IVT için 7 gün tutulur |
 | **Yayıncı kalite puanı** | Yayıncı / site bazında IVT oranı, görünürlük, kreatif şikayetleri ve ads.txt uyumundan günlük hesaplanan puan; düşük puanlı envanter DSP'lere kısılarak ya da hiç gönderilmez, ağa katılımda eşik olarak kullanılır |
 
 Şüpheli trafik teklife girmez, rapora yansımaz ve faturadan düşülür.
@@ -176,6 +190,7 @@ Kreatif akışı:
 - Geçmiş ad request'lerinin **%1'lik örneklemi** (tüm hedefleme özellikleriyle) saklanır.
 - Yeni line item rezervasyonunda: örneklem üzerinde mevcut garantili line item'larla birlikte teslimat simülasyonu → **kullanılabilir (available)** ve **çakışan (contended)** gösterim tahmini.
 - Mevsimsellik için zaman serisi modeli (Prophet / gradient boosting) ile ölçekleme.
+- **Erişim ve frekans planlama:** Reklamveren "bu kitlede N tekil kişiye ortalama F kez" hedefi girer. Örneklem ve Theta sketch'lerle tekil erişim eğrisi çıkarılır; hedef için gereken gösterim, bütçe ve süre hesaplanır. Garantili rezervasyonda ve büyük reklamveren tekliflerinde kullanılır.
 
 ## 2.8 Raporlama Boyutları ve Metrikler
 
@@ -204,3 +219,42 @@ Platform önce kendi sitelerimizde çalışır, sonra Türkiye'deki dış yayın
 - **Doğrudan / programatik karşılaştırma:** Aynı envanterde garantili kampanyaların eCPM'i ile Exchange'in kazanan fiyatları; gölge fiyat ayarı önerileri.
 - **Doluluk takibi:** Fill rate, boş kalan gösterimler ve nedenleri (no-fill reason: floor, timeout, blok, hedefleme).
 - **Yetkili satıcı sağlığı:** ads.txt / sellers.json tutarlılık uyarıları.
+
+## 2.10 Kontekstüel Hedefleme
+
+Rızası olmayan ya da kimliği bilinmeyen trafikte hedeflemenin tek sinyali **sayfanın kendisidir**; fingerprint ve 3. parti cookie kullanılmadığı için bu trafiğin geliri kontekstüel kaliteye bağlıdır. Kontekstüel hedefleme kişiyi değil sayfayı hedefler: profil okumaz, kimlik kullanmaz, rıza durumundan bağımsız olarak tüm trafikte çalışır.
+
+```mermaid
+flowchart LR
+    REQ["Reklam isteği<br/>(sayfa URL'si)"] --> CACHE{"URL önbellekte mi?<br/>Aerospike context seti"}
+    CACHE -- Evet --> USE["Etiketler + eşleşen kampanyalar<br/>targeting index'e"]
+    CACHE -- Hayır --> SITE["Bu istek: site düzeyi kategori"]
+    CACHE -- Hayır --> Q[("kafka: content.pages")]
+    Q --> CRAWL["Tarayıcı<br/>sayfayı indirir"]
+    CRAWL --> EXT["Metin çıkarma<br/>menü, reklam, yorum ayıklanır"]
+    EXT --> NLP["Sınıflandırıcı<br/>kök bulma + encoder"]
+    NLP --> MATCH["Kampanya eşleşmesi<br/>embedding benzerliği"]
+    MATCH --> STORE["Önbelleğe yaz<br/>url_hash → etiketler"]
+```
+
+**Kural: istek anında model çalışmaz.** Sayfa yalnızca ilk görüldüğünde (ve trafik almaya devam ederse 24 saatte bir) sınıflandırılır; istek anında tek bir önbellek okuması yapılır. Önbellekte olmayan URL'nin ilk istekleri site düzeyi kategoriyle karar verir, beklemez.
+
+**Çıktılar (URL başına)**
+
+| Çıktı | Örnek | Kullanım |
+|-------|-------|----------|
+| IAB Content Taxonomy kategorisi | `Automotive > Electric Vehicles` | Kategori hedeflemesi, raporlama |
+| Anahtar kelimeler ve varlıklar (kök hâlinde) | `otomobil`, `Togg`, `İstanbul` | Anahtar kelime hedeflemesi, rekabet ayrımı |
+| Duygu | olumlu / nötr / olumsuz | Marka güvenliği |
+| Marka güvenliği sınıfı | felaket, şiddet, yetişkin, siyasi… | Reklamveren blok listeleri (filtre aşaması) |
+| Sayfa embedding'i | 384–768 boyutlu vektör | Anlamsal kampanya eşleşmesi |
+| Dil | `tr`, `en` | Dil hedeflemesi |
+
+**Anlamsal eşleşme:** Reklamveren kampanyaya bir kontekst tanımı girer (serbest metin ya da örnek URL'ler; ör. "elektrikli araç, şarj, menzil"). Tanımın embedding'i ile sayfa embedding'inin benzerliği eşiği geçerse kampanya o sayfada aday olur; kategori etiketi olmasa da şarj istasyonu haberi eşleşir. Hesap sınıflandırma anında yapılıp `url → [kampanya, skor]` olarak saklanır; kampanya tanımı değişince arka plan işi etkilenen URL'leri yeniden puanlar.
+
+**Türkçe'ye özgü:** Türkçe eklemeli olduğu için anahtar kelime eşleştirmesi kök bulmadan çalışmaz ("otomobil", "otomobilin", "otomobillerde" aynı kavramdır). Metin önce kök bulmadan geçer (ör. Zemberek), sınıflandırma Türkçe ya da çok dilli bir encoder ile yapılır (ör. BERTurk, multilingual-e5) ve IAB kategorilerine ince ayar (fine-tune) edilir.
+
+**Ölçek:** Bir haber ağında günde onbinlerce yeni URL vardır; sınıflandırma toplu çalışan birkaç CPU sunucusuyla yapılabilir, GPU şart değildir.
+
+**Hazır sağlayıcı seçeneği:** Başlangıçta bir kontekstüel sınıflandırma API'si kullanılabilir; ancak Türkçe kalitesi ve URL başına maliyet ölçülmeden karar verilmemelidir.
+
