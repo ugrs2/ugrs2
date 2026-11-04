@@ -15,7 +15,7 @@
 | **Analitik** | Raporlama, BI, model eğitimi | ClickHouse, Iceberg Lakehouse, Trino, Spark |
 | **ML Platformu** | CTR/CVR, bid shading, lookalike, IVT modelleri | Feature Store, Model Registry, gömülü model sunumu |
 | **Kontrol Düzlemi** | Kampanya yönetimi, kullanıcı/tenant yönetimi | Admin UI, yayıncı paneli, reklamveren paneli, Management API, IAM |
-| **Gizlilik & Güvenlik** | Rıza, silme talepleri, şifreleme, denetim | CMP Entegrasyonu, Consent Service, DSAR Pipeline, KMS, Audit Log |
+| **Gizlilik & Güvenlik** | Rıza sinyaline uyum, silme talepleri, şifreleme, denetim | CMP entegrasyonu (yayıncıda), edge'de rıza çözümleme, DSAR API + Pipeline, KMS, Audit Log |
 
 ## 1.2 Detaylı Bileşen Şeması
 
@@ -158,15 +158,15 @@ flowchart TB
 ## 1.3 Ana Veri Akışları
 
 ### A) Davranışsal veri → Profil (DMP yolu)
-1. `collect.js` / SDK olayı (page_view, product_view, purchase vb.) + rıza dizesi + kimlikler Collector'a gelir.
-2. Collector şemayı doğrular, `received_time` ekler, **senkron yanıtı 204** olarak döner ve olayı `raw.web_events` topic'ine yazar (yerel diske tampon ile — Kafka erişilemezse kayıp olmaz).
-3. Flink: şema doğrulama → rıza filtresi (profilleme amacı yoksa olay yalnızca agregat analitiğe gider) → bot filtresi → zenginleştirme (GeoIP, UA, içerik kategorisi) → kimlik çözümleme (`person_id`) → `enriched.*` topic.
+1. Yayıncının CMP'si izin verdiyse `collect.js` / SDK olayı (page_view, product_view, purchase vb.) + rıza dizesi + kimlikler Collector'a gelir; izin yoksa etiket kimlik göndermez.
+2. Collector şemayı doğrular, rıza dizesini bir kez bit maskesine çözer, `received_time` ekler, **senkron yanıtı 204** olarak döner ve olayı `raw.web_events` topic'ine yazar (yerel diske tampon ile — Kafka erişilemezse kayıp olmaz).
+3. Flink: şema doğrulama → rıza biti filtresi (profilleme biti yoksa olay yalnızca agregat analitiğe gider; sonraki katmanlar yeniden kontrol etmez) → bot filtresi → zenginleştirme (GeoIP, UA, içerik kategorisi) → kimlik çözümleme (`person_id`) → `enriched.*` topic.
 4. Gerçek zamanlı segment kuralları Flink keyed state'te değerlendirilir; üyelik değişiklikleri profil deposuna yazılır (saniyeler mertebesinde).
 5. Tüm olaylar Iceberg'e düşer; günlük batch işler (identity graph, karmaşık segmentler, lookalike) buradan çalışır.
 
 ### B) Reklam isteği → Karar → Teslimat (Ad Server yolu)
 1. Sayfa / app / player reklam ister (doğrudan ad tag, Prebid.js sonrası ad server çağrısı veya OpenRTB isteği).
-2. Karar motoru: rıza kontrolü → kimlik ve profil okuma → aday line item'ların indeks ile çekilmesi → filtreler (fcap, pacing, brand safety, deal) → skorlama (eCPM) → header bidding / RTB teklifleriyle birleşik açık artırma → kreatif yanıtı.
+2. Karar motoru: rıza biti (edge'de çözüldü; kişiselleştirme kapalıysa profil okunmaz) → kimlik ve profil okuma → aday line item'ların indeks ile çekilmesi → filtreler (fcap, pacing, brand safety, deal) → skorlama (eCPM) → header bidding / RTB teklifleriyle birleşik açık artırma → kreatif yanıtı.
 3. Karar olayı **asenkron** olarak `ad.decisions` topic'ine yazılır.
 4. Gösterim / görünürlük / tıklama beacon'ları imzalı URL'ler ile Tracking endpoint'e gelir → `ad.events` → Flink (dedup, IVT, faturalama) → ClickHouse + pacing + fcap sayaçları.
 

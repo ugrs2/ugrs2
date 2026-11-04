@@ -94,8 +94,8 @@ Collaboration konfigürasyonu örneği:
   "allowed_templates": ["overlap_report", "reach_frequency", "sales_lift", "audience_activation"],
   "privacy": {
     "min_aggregation_threshold": 50,
-    "differential_privacy": { "enabled": true, "epsilon_total": 10.0, "epsilon_per_query_max": 0.2, "delta": 1e-9 },
-    "max_queries_per_day": 10
+    "differential_privacy": { "enabled": true, "epsilon_total": 10.0, "epsilon_per_query_max": 0.05, "delta": 1e-9 },
+    "max_queries_per_day": 2
   },
   "outputs": {
     "reports": { "recipients": ["retailx", "publisher_42"] },
@@ -107,7 +107,7 @@ Collaboration konfigürasyonu örneği:
 ### Kontroller
 - **Kolon rolleri:** `join` (yalnızca eşleştirmede), `dimension` (gruplamada), `aggregate_only` (yalnızca SUM/AVG/COUNT içinde). `SELECT *` ve satır döndüren sorgular derleme aşamasında reddedilir.
 - **Eşik:** Sonuç tablosundaki her hücre için **gürültü eklenmiş** `COUNT(DISTINCT match_id) ≥ k`; altındakiler bastırılır. Eşik gerçek sayıya uygulanırsa bir hücrenin görünüp görünmemesi tek bir kişinin varlığını sızdırabilir ve DP garantisini deler.
-- **Bütçe ile limitlerin uyumu:** `epsilon_total / epsilon_per_query_max` collaboration boyunca çalışabilecek en az sorgu sayısını verir (örnekte 10 / 0.2 = 50). `max_queries_per_day` bu değerle birlikte ayarlanmalıdır; aksi halde günlük limit hiç devreye girmez ya da bütçe ilk gün tükenir.
+- **Bütçe ile limitlerin uyumu:** `epsilon_total / epsilon_per_query_max` collaboration boyunca çalışabilecek en az sorgu sayısını verir (örnekte 10 / 0,05 = 200). Günlük limit bütçeyi işbirliği süresine yaymalıdır: 200 sorgu ÷ günde 2 = 100 gün, yani örnekteki 1 Ekim – 31 Ocak işbirliğinin büyük bölümü. Aksi halde günlük limit hiç devreye girmez ya da bütçe ilk haftalarda tükenir.
 - **Fark saldırısı (differencing attack) koruması:** Birbirine çok benzeyen filtrelerle art arda sorgu tespiti; DP gürültüsü ve bütçe bu riski matematiksel olarak sınırlar.
 - **DP bütçesi:** Her sorgu epsilon tüketir; collaboration bütçesi bittiğinde yeni sorgu çalışmaz.
 
@@ -115,15 +115,9 @@ Collaboration konfigürasyonu örneği:
 
 ```sql
 -- Şablon: sales_lift  (parametreler: :campaign_id, :start, :end, :category)
-WITH exposed AS (
-    SELECT DISTINCT match_id
-    FROM publisher_42.exposures
-    WHERE campaign_id = :campaign_id
-      AND date BETWEEN :start AND :end
-),
-holdout AS (                      -- kampanya kurulumunda ayrılmış kontrol grubu
-    SELECT DISTINCT match_id
-    FROM publisher_42.holdout_assignments
+WITH assigned AS (                 -- kampanya kurulumunda rastgele atanan gruplar (intent-to-treat)
+    SELECT match_id, grp               -- grp: 'test' (reklam gösterilebilir) | 'holdout' (hiç gösterilmez)
+    FROM publisher_42.campaign_assignments
     WHERE campaign_id = :campaign_id
 ),
 sales AS (
@@ -134,20 +128,18 @@ sales AS (
     GROUP BY match_id
 )
 SELECT
-    grp,
+    a.grp,
     COUNT(*)                                       AS users,          -- DP gürültüsü eklenir
     SUM(CASE WHEN s.revenue > 0 THEN 1 ELSE 0 END) AS buyers,         -- DP gürültüsü eklenir
     SUM(COALESCE(s.revenue, 0))                    AS revenue         -- clamp + DP gürültüsü
-FROM (
-    SELECT match_id, 'exposed' AS grp FROM exposed
-    UNION ALL
-    SELECT match_id, 'holdout' AS grp FROM holdout
-) g
+FROM assigned a
 LEFT JOIN sales s USING (match_id)
-GROUP BY grp;
+GROUP BY a.grp;
 -- Eşik (k ≥ 50) burada HAVING ile uygulanmaz: politika motoru gürültüyü ekledikten sonra
 -- eşiği gürültülü `users` değerine uygular (bkz. 4.4 Kontroller).
 ```
+
+> **Neden atanmış gruplar?** Reklamı *gerçekten görenleri* kontrol grubuyla karşılaştırmak yanlıdır: reklamı görenler zaten daha aktif kullanıcılardır ve lift olduğundan yüksek çıkar. Şablon, rastgele atanmış test ve kontrol gruplarını karşılaştırır (intent-to-treat). Etkinin yalnızca gösterim alanlar üzerindeki büyüklüğü gerekiyorsa kontrol grubunda da "burada gösterilecekti" anı kaydedilir (ghost ads) ve gösterilen test kullanıcıları, ghost-gösterilen kontrol kullanıcılarıyla karşılaştırılır.
 
 > Politika motoru bu şablonu çalıştırmadan önce: parametre tiplerini doğrular, `revenue` değerlerini kişi başı üst sınıra (clamp) keser (DP hassasiyetini sınırlamak için). Çalıştırdıktan sonra gürültüyü ekler, eşiği gürültülü değerlere uygular ve epsilon bütçesinden düşer.
 
@@ -158,7 +150,7 @@ GROUP BY grp;
 | **Kitle örtüşme** | Segment üyelikleri | CRM müşteri listesi | Örtüşme oranı, segment bazında dağılım |
 | **Erişim & frekans** | Impression logları | — / diğer yayıncı | Tekil erişim, frekans dağılımı (çapraz yayıncı) |
 | **Satış atıflama / ROAS** | Maruz kalma | Online + mağaza satışları | Kampanya bazlı atfedilen gelir |
-| **Artımsallık (Incrementality)** | Maruz + holdout grubu | Satışlar | Lift %, güven aralığı |
+| **Artımsallık (Incrementality)** | Rastgele test / kontrol ataması (+ ghost ads) | Satışlar | Lift %, güven aralığı |
 | **Aktivasyon** | Envanter | "Son 90 gün X alıcısı" | Ad server'da opak segment |
 | **Lookalike seed** | Profil özellikleri | Yüksek değerli müşteriler | Benzer kitle (opak) |
 | **Retail media** | Envanter + maruz kalma | Ürün satış verisi (SKU) | Kapalı döngü (closed-loop) ölçümleme |
@@ -187,6 +179,7 @@ sequenceDiagram
 - Partner hangi kişilerin eşleştiğini **hiçbir zaman öğrenmez**; yalnızca segment ID'si ve yaklaşık büyüklüğü görür.
 - Yayıncı partnerin ham CRM verisini **hiçbir zaman görmez**; yalnızca "bu person_id'ler X segmentinde" bilgisini alır.
 - Opak segmentler dış aktivasyon kanallarına (DSP, Meta vb.) gönderilemez (`exportable=false` politika seviyesinde zorunlu).
+- **Kapsam:** Opak segment, onu üreten yayıncının (tenant) `person_id`'lerinden oluşur ve yalnızca **o yayıncının envanterinde** hedeflenebilir. Kendi DSP'mizden kullanılması bu yayıncıya yönelik bir deal üzerinden olur; ağdaki diğer yayıncılarda karşılığı yoktur (kiracılar arası kimlik birleştirme kapalı, [1.4](01-genel-mimari.md#14-çok-kiracılılık-multi-tenancy)).
 - **Raporlama üzerinden sızıntı koruması:** Partner, opak segmentle açtığı line item'ın teslimat raporlarını (gösterim, tıklama, dönüşüm; özellikle kendi pikselinden gelen dönüşümler) segment üyeliğini daraltmak için kullanabilir. Bu nedenle opak segment hedefleyen kampanyalarda rapor boyutları kısıtlanır (ör. kullanıcı, saat ya da küçük coğrafya kırılımı yok), hücre eşiği (k) uygulanır ve aynı opak segmentle farklı daraltıcı hedeflemelere sahip çok sayıda line item açılması politika motorunca sınırlanır.
 
 ## 4.8 Kendi DCR'ımız mı, Hazır Çözüm mü?

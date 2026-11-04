@@ -22,14 +22,14 @@ Tarayıcıda açmak için `python simulator/tools/serve.py` çalıştırıp `htt
 | # | Doküman | İçerik |
 |---|---------|--------|
 | 1 | [Genel Mimari](01-genel-mimari.md) | Katmanlar, bileşenler, ana veri akışları |
-| 2 | [Ad Server](02-ad-server.md) | Ad request akışı, karar motoru, açık artırma, pacing, frequency cap, RTB, VAST, tracking, IVT |
+| 2 | [Ad Server](02-ad-server.md) | Ad request akışı, karar motoru, açık artırma, pacing, frequency cap, RTB, VAST, tracking, IVT, kreatif optimizasyonu, kontekstüel hedefleme |
 | 3 | [DMP](03-dmp.md) | Veri toplama, identity graph, profil deposu, segmentasyon, aktivasyon |
 | 4 | [Data Clean Room](04-data-clean-room.md) | Eşleştirme (PSI/TEE), sorgu politikaları, diferansiyel gizlilik, kullanım senaryoları |
 | 5 | [Veri Modeli](05-veri-modeli.md) | PostgreSQL / ClickHouse DDL, Protobuf olay şemaları, profil kaydı, ER diyagramı |
 | 6 | [Altyapı ve Teknoloji](06-altyapi-ve-teknoloji.md) | Teknoloji yığını, dağıtım topolojisi, gecikme bütçesi, kapasite, SLO, gözlemlenebilirlik |
 | 7 | [Gizlilik ve Uyum](07-gizlilik-ve-uyum.md) | KVKK, GDPR, TCF 2.2 / GPP, rıza akışı, silme talepleri, saklama süreleri |
 | 8 | [Yol Haritası](08-yol-haritasi.md) | Fazlar, MVP kapsamı, ekip yapısı |
-| 9 | [Ad Exchange ve DSP](09-exchange-ve-dsp.md) | Pazar yeri, traffic shaping, açık artırma, komisyon, kendi DSP'miz, bid shading, OpenRTB entegrasyonu |
+| 9 | [Ad Exchange ve DSP](09-exchange-ve-dsp.md) | Pazar yeri, traffic shaping, açık artırma, komisyon, kendi DSP'miz, bid shading, OpenRTB entegrasyonu, retargeting, ürün kataloğu, atıflama, uplift |
 | 10 | [Faturalama ve Para Akışı](10-faturalama-ve-para-akisi.md) | Defter, ön ödeme / kredi, komisyon, IVT iadesi, çok para birimi, e-fatura, hakediş, mutabakat |
 
 ## Tek Bakışta Sistem
@@ -112,8 +112,8 @@ flowchart LR
 
 1. **Tek event backbone:** DMP olayları ve reklam olayları aynı Kafka + Protobuf şema altyapısını kullanır; böylece raporlama, atıflama (attribution) ve segmentasyon aynı veriden beslenir.
 2. **Sıcak yol / soğuk yol ayrımı:** Ad Server sıcak yolunda (hot path) yalnızca bellek içi indeksler ve tek-hop KV okumaları vardır; hiçbir senkron veritabanı sorgusu, hiçbir senkron Kafka yazımı yoktur.
-3. **Kimlik katmanı ayrı servis:** Cookie, MAID, hashed email, PPID, UID2 / ID5 gibi kimlikler tek bir `person_id` altında birleşir; 3. parti cookie'ye bağımlılık yoktur.
-4. **Rıza her katmanda uygulanır:** Toplama, profilleme, aktivasyon ve clean room aşamalarının her birinde rıza (consent) kontrolü yapılır; rıza sinyali olayla birlikte taşınır.
+3. **Kimlik katmanı ayrı servis:** Cookie, MAID, hashed email, PPID, UID2 / ID5 gibi kimlikler tek bir `person_id` altında birleşir; yalnızca deterministik bağlantı kurulur, fingerprint kullanılmaz; 3. parti cookie'ye bağımlılık yoktur.
+4. **Rızayı yayıncı alır, platform uygular:** Rıza yayıncının sitesindeki CMP'de alınır; rıza yoksa etiketler kimlik göndermez. Platform sinyali edge'de bir kez bit maskesine çözer ve olayla taşır; yalnızca ad server/DSP (profil okuma), Exchange (kimlik iletimi) ve Flink girişi (profilleme) bu biti okur, sonraki katmanlar yeniden kontrol etmez ([7.2](07-gizlilik-ve-uyum.md#72-rıza-consent-sorumluluk-ve-akış)).
 5. **Clean room'dan satır seviyesinde veri çıkmaz:** Yalnızca eşik ve gürültü uygulanmış agregalar ya da ad server içinde kullanılabilen, dışa aktarılamayan segmentler çıkar.
 6. **Tarafsız pazar yeri:** Kendi DSP'miz Exchange'e harici DSP'lerle aynı API ve kurallarla bağlanır; diğer alıcıların tekliflerini göremez.
 7. **Para tek defterde:** Tahsilat, komisyon, IVT iadesi ve hakediş çift taraflı, değiştirilemez bir defterde tutulur; harcama saatlik olarak deftere işlenir.

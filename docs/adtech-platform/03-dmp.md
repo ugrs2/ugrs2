@@ -60,7 +60,7 @@ flowchart LR
 ## 3.2 Veri Toplama
 
 ### Web Tag (`collect.js`)
-- Asenkron, < 15 KB (gzip), CMP'den rıza durumunu okur (`__tcfapi`, `__gpp`, KVKK banner callback'i).
+- Asenkron, < 15 KB (gzip). Yayıncının CMP'si rıza verene kadar yüklenmez ve çerez yazmaz; yüklendiğinde rıza dizesini (`__tcfapi`, `__gpp`, KVKK banner callback'i) olaylara ekler. Dizenin çözümlenmesi sunucuda, edge'de bir kez yapılır ([7.2](07-gizlilik-ve-uyum.md#72-rıza-consent-sorumluluk-ve-akış)).
 - **1. parti kimlik:** Yayıncının kendi alan adından, sunucu tarafından set edilen (`Set-Cookie`, HttpOnly, Secure, SameSite=Lax) cookie. Safari ITP kısıtları nedeniyle (CNAME cloaking ve farklı IP'den set edilen cookie'lerin ömrünün kısaltılması) collector'ın yayıncı altyapısı üzerinden (reverse proxy / aynı IP bloğu) sunulması önerilir.
 - Olaylar `navigator.sendBeacon` ile batch gönderilir; sayfa kapanışında kayıp minimize edilir.
 - Sunucu taraflı etiketleme (server-side tagging) seçeneği: yayıncının sunucusu olayları S2S API'ye iletir; ad blocker ve ITP etkisi azalır.
@@ -96,7 +96,8 @@ flowchart LR
 | `ppid` | Yayıncı kullanıcı ID'si | Çok yüksek | Login tabanlı |
 | `crm` | Reklamveren CRM ID | Yüksek | Yalnızca kendi tenant'ında |
 | `uid2` / `id5` / `rampid` | Ortak kimlik çözümleri | Yüksek | Lisans / sözleşme gerektirir |
-| `ip_ua` | IP + UA | Düşük | Yalnızca olasılıksal, kısa ömürlü |
+
+> **Fingerprint ile kimlik yok.** IP, User-Agent, ekran, yazı tipi gibi cihaz sinyallerinden kimlik türetilmez ve identity graph'a bağlantı olarak yazılmaz. Rızası olmayan ya da cookie'sini silen kullanıcı yeniden tanınmaya çalışılmaz; kontekstüel reklam alır. Gerekçe: KVKK Çerez Rehberi çerezlere "benzer teknolojileri" de kapsar (fingerprint de rıza gerektirir), Apple izleme amaçlı fingerprinting'i yasaklar, Safari ve Firefox aktif olarak engeller; olasılıksal eşleşme de yanlış kişileri birleştirip segmentleri kirletir. Cihaz sinyalleri yalnızca sahte trafik tespitinde, istek anında kullanılır ([2.6](02-ad-server.md#26-ivt-geçersiz-trafik-ve-marka-güvenliği)).
 
 ### Identity Graph modeli
 
@@ -123,7 +124,7 @@ erDiagram
     ID_LINK {
         string src_id
         string dst_id
-        string link_type "login, form, sdk, sync, probabilistic"
+        string link_type "login, form, sdk, sync"
         float confidence
         string source
         timestamp observed_at
@@ -131,11 +132,11 @@ erDiagram
 ```
 
 - **Deterministik bağlantılar:** aynı olayda birlikte görülen kimlikler (ör. login olayında `fpc` + `hem`).
-- **Olasılıksal bağlantılar:** IP + zaman + davranış benzerliği; `confidence` skoruyla saklanır ve **varsayılan olarak hedeflemede kullanılmaz** (yalnızca açık rıza ve tenant politikası izin verirse).
+- **Olasılıksal bağlantı yok:** IP + zaman + davranış benzerliğiyle bağlantı kurulmaz; graph yalnızca deterministik bağlantılarla çalışır (bkz. yukarıdaki fingerprint notu). `confidence` alanı deterministik kaynakların güvenilirlik farkı için kalır (ör. `sync` < `login`).
 - **Graph oluşturma:** günlük Spark işi — connected components (union-find) + kısıtlar:
   - Küme başına maksimum kimlik sayısı (ör. 50 cookie, 10 MAID); aşanlar "ortak cihaz" (kafe, kurumsal NAT) sayılıp bölünür → "dev küme" (giant component) problemi engellenir.
   - En eski bağlantılar zaman bazlı çürür (decay); 180 gün görülmeyen kimlik düşer.
-- **Gerçek zamanlı yol:** `idmap` tablosu (id → person_id) her olayda okunur; yeni deterministik bağlantı geldiğinde iki person anında birleştirilir (merge olayı yayınlanır, profil kayıtları birleştirilir).
+- **Gerçek zamanlı yol:** `idmap` tablosu (id → person_id) her olayda okunur; yeni deterministik bağlantı geldiğinde iki person anında birleştirilir (merge olayı yayınlanır, profil kayıtları birleştirilir). Flink'teki gerçek zamanlı segment durumu da (`person_id` ile anahtarlı kova sayaçları) `identity.merges` olayıyla hedef kişiye taşınıp toplanır; aksi halde birleşmeden sonra kurallar eksik sayar.
 
 ## 3.4 Profil Deposu
 
@@ -155,7 +156,8 @@ erDiagram
 | **Batch SQL** | Son 90 günde 3+ satın alma ve sepet ort. > 1000 TL | Spark / ClickHouse | saatlik/günlük |
 | **Lookalike** | Seed: son 30 gün alıcılar → benzer 1M kişi | Embedding + ANN | günlük |
 | **Propensity** | 7 gün içinde satın alma olasılığı > 0.6 | GBDT modeli | günlük |
-| **Kontekstüel** | Şu an "finans" içeriği okuyan | Ad server (istek anında) | anlık |
+| **Kontekstüel** | Şu an "finans" içeriği olan sayfa (kişi değil sayfa) | Kontekstüel servis, URL önbelleği ([2.10](02-ad-server.md#210-kontekstüel-hedefleme)) | anlık |
+| **Oturum içi niyet** | Bu oturumda son 3 sayfası otomobil | Ad server, oturum durumu (profile yazılmaz, oturum bitince silinir; kişisel veri olduğu için rıza gerekir) | anlık |
 | **CRM / Onboard** | Sadakat programı "gold" üyeleri | Hashed eşleştirme | saatlik |
 | **Clean Room** | Perakendecinin "bebek ürünü alıcısı" ile örtüşenler | DCR | günlük |
 | **Kombinasyon** | (A ∪ B) ∩ ¬C | Set işlemleri | türetilmiş |
@@ -204,6 +206,7 @@ erDiagram
 | **Meta / Google / TikTok** | Hashed email/telefon ile Custom Audience / Customer Match, Conversions API | Açık rıza + veri işleme sözleşmesi |
 | **CRM kanalları** | Email/SMS/push için segment export | **İYS** onayı olmayanlar gönderilmez |
 | **Clean Room** | Segmenti DCR'ye girdi olarak ver | Satır verisi partnere gitmez |
+| **Segment pazar yeri** | Yayıncı segmentini DSP'de reklamverenlere açar; kullanım başına veri ücreti ([10.4](10-faturalama-ve-para-akisi.md#104-komisyon-ve-gelir-paylaşımı)) | Segment yalnızca o yayıncının envanterinde geçerli; kişi verisi reklamverene geçmez |
 
 ## 3.7 Veri Kalitesi
 
